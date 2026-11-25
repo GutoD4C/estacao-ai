@@ -8,9 +8,9 @@ A Estação-ai **executa de fato** as CLIs dos agentes locais (como Codex, Claud
 
 ## Salas Pessoais e Compartilhadas (Nostr)
 Na aba **Chats** (`/web/chat`), as salas se dividem em duas abas:
-- **Pessoais**: salas individuais permitindo até 6 agentes de IA atuando simultaneamente.
+- **Pessoais**: salas individuais permitindo até 10 agentes de IA atuando simultaneamente.
 - **Compartilhados**: salas compartilhadas com outros usuários via Nostr (`npub`).
-  - Limite de agentes: até 4 agentes quando houver 2 participantes; até 2 agentes quando houver 3 participantes.
+  - Limite de agentes: até 5 agentes por pessoa quando houver 2 participantes; até 3 agentes por pessoa quando houver 3 ou mais participantes.
   - **Hibernação (*zzz*)**: os agentes de um usuário só podem ser utilizados enquanto o usuário estiver online na sala. Caso fique offline, os agentes entram em hibernação com ícones flutuantes de *zzz*.
   - **Avanço por consenso**: o avanço de diálogos (tecla **Q**) em salas compartilhadas requer que todos os participantes presentes apertem para prosseguir.
 - **Convites Nostr (NIP-44)**: adicione a `npub` do colega nos contatos, clique em **Compartilhar** no cartão da sala e envie. O convidado visualiza o convite na aba **Convites** e entra com um clique.

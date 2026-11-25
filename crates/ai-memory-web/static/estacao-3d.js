@@ -1238,7 +1238,7 @@ import { criarClienteNostr, RACAS_CACHORRO, RELAY_PADRAO, requisicao } from "./e
               }
             }));
           });
-          agentList.slice(0, 6).forEach(function (a) {
+          agentList.slice(0, 12).forEach(function (a) {
             chips.push(el("button", {
               type: "button", class: "chalet-chip", text: "@" + a.name,
               onclick: function () {

@@ -197,8 +197,8 @@ function contarPessoasSala(p){
   return Math.max(2,set.size);
 }
 function limiteAgentesSala(p){
-  if(!p||!p.compartilhado)return 6;
-  return contarPessoasSala(p)>=3?2:4;
+  if(!p||!p.compartilhado)return 10;
+  return contarPessoasSala(p)>=3?3:5;
 }
 function onlineNaSala(p){
   if(!p)return [];
@@ -1427,7 +1427,7 @@ function chatsOrdenados(){
 function abrirModalChat(p){
   var editando=Boolean(p&&p.id);
   var chatIds=E.agentes.filter(function(a){return grupoDoAgente(a)==="chat";}).map(function(a){return a.id;});
-  var limitePadrao=p?limiteAgentesSala(p):(abaChatsFiltro==="compartilhados"?4:6);
+  var limitePadrao=p?limiteAgentesSala(p):(abaChatsFiltro==="compartilhados"?5:10);
   var padrao=editando
     ?p.agentes.filter(function(id){var a=agente(id);return a&&grupoDoAgente(a)==="chat";}).slice(0,limitePadrao)
     :chatIds.slice(0,limitePadrao);
@@ -1618,7 +1618,7 @@ function telaChat(existingFs){
       h("div",{class:"head-bar"},[
         h("div",{},[
           h("h1",{texto:"Chats"}),
-          h("p",{class:"sub",texto:"Escolha um chat pessoal (até 6 agentes) ou compartilhado via Nostr (4 agentes para 2 pessoas · 2 para 3+) para entrar no Chalé 3D."})
+          h("p",{class:"sub",texto:"Escolha um chat pessoal (até 10 agentes) ou compartilhado via Nostr (5 agentes/pessoa para 2 pessoas · 3/pessoa para 3+) para entrar no Chalé 3D."})
         ]),
         h("div",{class:"row"},[
           botaoConvites(),botaoContaNostr(),
@@ -1650,7 +1650,7 @@ function telaChat(existingFs){
           abaChatsFiltro==="compartilhados"
             ?"Compartilhe um chat seu com contatos Nostr (npub) ou conecte-se ao relay para ver chats compartilhados com você."
             :(temChatModels
-              ?"Crie seu primeiro chat pessoal para entrar no Chalé 3D com até 6 agentes cachorrinhos."
+              ?"Crie seu primeiro chat pessoal para entrar no Chalé 3D com até 10 agentes cachorrinhos."
               :"Clique em “Configurar automático (Chat)” para detectar suas CLIs instaladas e preparar o Chalé 3D.")
         ]),
         h("div",{class:"row est-justify-center"},[
@@ -1676,11 +1676,11 @@ function telaChat(existingFs){
         var ehMeu=!c.dono_npub||c.dono_npub===meuNpub();
         var pessoas=contarPessoasSala(c);
         var lim=limiteAgentesSala(c);
-        var chips=h("div",{class:"chips"},cChatIds.slice(0,6).map(function(id){
+        var chips=h("div",{class:"chips"},cChatIds.slice(0,10).map(function(id){
           var a=agente(id);
           var hib=agenteHibernando(c,a);
           return h("span",{class:"pill"+(hib?" sleeping":""),texto:(hib?"💤 ":"")+(a?a.nome:id)});
-        }).concat(cChatIds.length>6?[h("span",{class:"pill",texto:"+"+(cChatIds.length-6)})]:[]));
+        }).concat(cChatIds.length>10?[h("span",{class:"pill",texto:"+"+(cChatIds.length-10)})]:[]));
 
         grid.append(h("div",{class:"card p-card chat-hub-card",onclick:function(){entrarNoChat(c,"3d");}},[
           h("div",{class:"p-card-head"},[
@@ -1694,7 +1694,7 @@ function telaChat(existingFs){
           h("div",{class:"row"},[
             c.compartilhado
               ?h("span",{class:"pill accent",texto:(ehMeu?"Compartilhado por você":"Compartilhado com você")+" · "+pessoas+" pessoas (até "+lim+"/pessoa)"})
-              :h("span",{class:"pill",texto:"Pessoal · até 6 agentes"})
+              :h("span",{class:"pill",texto:"Pessoal · até 10 agentes"})
           ]),
           chips,
           h("div",{class:"p-card-foot",onclick:function(ev){ev.stopPropagation();}},[
@@ -2265,7 +2265,7 @@ function telaProjetos(){
     h("div",{class:"head-bar"},[
       h("div",{},[
         h("h1",{texto:"Projetos"}),
-        h("p",{class:"sub",texto:"Workspace 2D dinâmico com Pensador coordenando entregas, lista viva de tarefas e multi-terminal integrado. Pessoais (até 6 agentes) ou Compartilhados via Nostr."})
+        h("p",{class:"sub",texto:"Workspace 2D dinâmico com Pensador coordenando entregas, lista viva de tarefas e multi-terminal integrado. Pessoais (até 10 agentes) ou Compartilhados via Nostr (5/pessoa para 2 pessoas · 3/pessoa para 3+)."})
       ]),
       h("div",{class:"row"},[
         botaoConvites(),botaoContaNostr(),
@@ -2317,7 +2317,7 @@ function telaProjetos(){
       h("div",{class:"row"},[
         p.compartilhado
           ?h("span",{class:"pill accent",texto:(ehMeu?"Compartilhado por você":"Compartilhado com você")+" · "+pessoas+" pessoas (até "+lim+"/pessoa)"})
-          :h("span",{class:"pill",texto:"Pessoal · até 6 agentes"})
+          :h("span",{class:"pill",texto:"Pessoal · até 10 agentes"})
       ]),
       chips,
       h("div",{class:"muted mono corta",title:p.pasta||"",texto:p.pasta||"Sem pasta definida"}),
@@ -2840,7 +2840,7 @@ function telaProjeto(){
           p.descricao?h("span",{class:"muted",texto:p.descricao}):null,
           p.pasta?h("span",{class:"pill mono corta",title:p.pasta,texto:p.pasta}):null,
           p.memoria?h("a",{class:"pill accent",href:linkWikiProjeto(p.memoria),texto:"◈ "+p.memoria}):null,
-          p.compartilhado?h("span",{class:"pill accent",texto:"Compartilhado · "+contarPessoasSala(p)+" pessoas"}):h("span",{class:"pill",texto:"Pessoal · até 6 agentes"}),
+          p.compartilhado?h("span",{class:"pill accent",texto:"Compartilhado · "+contarPessoasSala(p)+" pessoas"}):h("span",{class:"pill",texto:"Pessoal · até 10 agentes"}),
           execCount?h("span",{class:"pill warn",texto:"● "+execCount+" tarefa(s) rodando"}):null
         ])
       ]),

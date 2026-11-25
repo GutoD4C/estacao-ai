@@ -15,8 +15,8 @@ export const CHALET_ZONES = {
       { x: -5.1, z: -1.2, yaw: 1.68, seat: true },
       { x: 4.1, z: 1.2, yaw: -2.3, seat: true },
       { x: -4.1, z: 1.2, yaw: 2.3, seat: true },
-      { x: 2.3, z: 2.5, yaw: -2.7, seat: false },
-      { x: -2.3, z: 2.5, yaw: 2.7, seat: false },
+      { x: 2.3, z: 2.5, yaw: -2.7, seat: true },
+      { x: -2.3, z: 2.5, yaw: 2.7, seat: true },
       { x: 6.2, z: -2.6, yaw: -1.5, seat: false }
     ]
   },

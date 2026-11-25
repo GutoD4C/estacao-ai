@@ -806,7 +806,7 @@ pub(crate) async fn api_acao(
                 if p.dono_npub.trim().is_empty() && !meu_npub.is_empty() {
                     p.dono_npub = meu_npub.clone();
                 }
-                // Ajusta agentes excedentes automaticamente para respeitar a cota (4 para 2 pessoas, 2 para 3+).
+                // Ajusta agentes excedentes automaticamente para respeitar a cota (5 para 2 pessoas, 3 para 3+).
                 let limite = limite_agentes_por_pessoa(p, &meu_npub);
                 let mut contagem: HashMap<String, usize> = HashMap::new();
                 p.agentes.retain(|ag_id| {

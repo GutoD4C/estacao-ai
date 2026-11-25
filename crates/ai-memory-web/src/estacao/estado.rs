@@ -376,17 +376,17 @@ pub(super) fn contar_pessoas_projeto(p: &Projeto, meu_npub: &str) -> usize {
 }
 
 /// Regra de cotas por pessoa:
-/// - Pessoal: até 6 agentes.
-/// - Compartilhado (2 pessoas): até 4 agentes por pessoa.
-/// - Compartilhado (3 ou mais pessoas): até 2 agentes por pessoa.
+/// - Solo (pessoal): até 10 agentes.
+/// - Compartilhado (2 pessoas): até 5 agentes por pessoa.
+/// - Compartilhado (3 ou mais pessoas): até 3 agentes por pessoa.
 pub(super) fn limite_agentes_por_pessoa(p: &Projeto, meu_npub: &str) -> usize {
     if !p.compartilhado {
-        return 6;
+        return 10;
     }
     if contar_pessoas_projeto(p, meu_npub) >= 3 {
-        2
+        3
     } else {
-        4
+        5
     }
 }
 

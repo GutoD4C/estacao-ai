@@ -49,8 +49,8 @@ A Estação divide as equipes em dois grupos:
 ## 4. Chats e Chalé 3D
 
 Na aba **Chats**, organize suas conversas divididas entre **Pessoais** e **Compartilhados**:
-- **Pessoais**: até 6 agentes por sala para conversas e debates individuais.
-- **Compartilhados**: conecte-se com outros usuários via Nostr (`npub`). Para 2 participantes, o limite é de até 4 agentes; para 3 participantes, até 2 agentes.
+- **Pessoais**: até 10 agentes por sala para conversas e debates individuais.
+- **Compartilhados**: conecte-se com outros usuários via Nostr (`npub`). Para 2 participantes, o limite é de até 5 agentes por pessoa; para 3 ou mais participantes, até 3 agentes por pessoa.
 - **Hibernação (*zzz*)**: se o proprietário de um agente estiver offline ou sair da sala compartilhada, os agentes pertencentes a ele entram em hibernação com partículas *zzz* e não podem ser acionados até que o dono retorne.
 
 ![Lista de salas com opções de Chat 2D, Compartilhar e Chalé 3D](../images/modelo-001/salas.png)

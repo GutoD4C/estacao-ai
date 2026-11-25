@@ -310,7 +310,7 @@ fn cotas_por_pessoa_e_hibernacao() {
         compartilhado: false,
         ..Projeto::default()
     };
-    assert_eq!(limite_agentes_por_pessoa(&pessoal, meu), 6);
+    assert_eq!(limite_agentes_por_pessoa(&pessoal, meu), 10);
 
     let comp2 = Projeto {
         id: "p2".into(),
@@ -319,7 +319,7 @@ fn cotas_por_pessoa_e_hibernacao() {
         membros_npub: vec![amigo1.into()],
         ..Projeto::default()
     };
-    assert_eq!(limite_agentes_por_pessoa(&comp2, meu), 4);
+    assert_eq!(limite_agentes_por_pessoa(&comp2, meu), 5);
 
     let comp3 = Projeto {
         id: "p3".into(),
@@ -328,7 +328,7 @@ fn cotas_por_pessoa_e_hibernacao() {
         membros_npub: vec![amigo1.into(), amigo2.into()],
         ..Projeto::default()
     };
-    assert_eq!(limite_agentes_por_pessoa(&comp3, meu), 2);
+    assert_eq!(limite_agentes_por_pessoa(&comp3, meu), 3);
 
     // Hibernação: agente de dono offline fica inativo na sala compartilhada.
     let mut e = Estado {
