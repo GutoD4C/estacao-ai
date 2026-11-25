@@ -1,0 +1,23 @@
+#!/bin/sh
+# gemini-cli stop hook.
+# Forwards the event JSON to the estacao-ai server, fire-and-forget.
+_lib_dir="$(dirname "$0")"
+[ -f "$_lib_dir/_lib.sh" ] || _lib_dir="$_lib_dir/.."
+. "$_lib_dir/_lib.sh"
+
+SERVER="${AI_MEMORY_HOOK_URL:-http://127.0.0.1:49374}"
+PAYLOAD=$(cat)
+# AfterAgent carries the model's reply in prompt_response. Assistant capture is
+# native-only (#196): the script fallback cannot sanitize the reply, so a Stop
+# that still carries the field is dropped rather than posted verbatim.
+case "$PAYLOAD" in
+    *'"prompt_response"'*)
+        exit 0
+        ;;
+esac
+CWD=$(ai_memory_extract_cwd "$PAYLOAD")
+QS=$(ai_memory_marker_qs "$CWD")
+
+printf '%s' "$PAYLOAD" \
+    | ai_memory_post_hook "$SERVER/hook?event=stop&agent=gemini-cli${QS}" >/dev/null 2>&1 || true
+exit 0

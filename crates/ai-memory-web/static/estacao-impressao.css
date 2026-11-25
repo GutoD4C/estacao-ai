@@ -1,0 +1,16 @@
+@page{margin:16mm;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#111827;line-height:1.55;font-size:12.5px;margin:0;}
+.pdf-top{border-bottom:2px solid #0f766e;padding-bottom:10px;margin-bottom:16px;}
+.pdf-top h1{margin:0 0 4px;font-size:20px;color:#0f766e;}
+.pdf-meta{font-size:11px;color:#4b5563;margin:2px 0;}
+.pdf-msg{border:1px solid #e5e7eb;border-left:4px solid #0f766e;border-radius:8px;padding:10px 14px;margin-bottom:10px;page-break-inside:avoid;background:#fff;}
+.pdf-msg.pdf-voce{border-left-color:#2563eb;background:#f8fafc;}
+.pdf-msg header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:12px;}
+.pdf-badge{font-size:10px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:1px 7px;}
+.pdf-hora{color:#6b7280;font-size:10.5px;margin-left:auto;}
+.pdf-body p{margin:0 0 6px;}
+.pdf-body pre{background:#f3f4f6;border:1px solid #e5e7eb;padding:8px;border-radius:6px;overflow-x:auto;font-size:11px;}
+.pdf-body code{background:#f3f4f6;padding:1px 4px;border-radius:4px;font-size:11px;}
+.pdf-body table{border-collapse:collapse;width:100%;margin:6px 0;}
+.pdf-body th,.pdf-body td{border:1px solid #d1d5db;padding:4px 6px;text-align:left;}
+.pdf-body .pdf-texto{white-space:pre-wrap;font-family:inherit;}

@@ -1,0 +1,15 @@
+[Unit]
+Description=estacao-ai MCP server (user service)
+Documentation=https://github.com/akitaonrails/ai-memory
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/estacao-ai/env
+ExecStart=/usr/bin/estacao-ai --data-dir %h/.local/share/estacao-ai --config %h/.config/estacao-ai/config.toml serve --transport http --enable-web
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

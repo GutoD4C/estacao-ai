@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily estacao-ai snapshot
+
+[Timer]
+OnCalendar=daily
+AccuracySec=15min
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

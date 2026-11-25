@@ -1,0 +1,31 @@
+post_install() {
+    cat <<'EOF'
+estacao-ai is installed.
+
+Single user: run
+  estacao-ai setup
+It creates the data dir and its bearer token, installs and starts a user
+service, wires the agents it finds (it shows the plan and asks first), and
+checks the result.
+
+System service:
+  sudo systemd-sysusers /usr/lib/sysusers.d/estacao-ai.conf
+  sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/estacao-ai.conf
+  sudo -u estacao-ai estacao-ai --data-dir /var/lib/estacao-ai --config /etc/estacao-ai/config.toml init
+  sudo systemctl enable --now estacao-ai.service
+
+Configure LLM/API keys in ~/.config/estacao-ai/env for the user service, or
+/etc/estacao-ai/env for the system service. See docs/install.md for details.
+EOF
+}
+
+post_upgrade() {
+    cat <<'EOF'
+estacao-ai was upgraded.
+
+If you use lifecycle hooks, refresh the staged hook scripts: re-run
+  estacao-ai setup
+(it shows the plan and asks first), or, for one agent,
+  estacao-ai install-hooks --agent <name> --apply
+EOF
+}

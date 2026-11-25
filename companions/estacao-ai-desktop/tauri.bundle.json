@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/estacao-ai"],
+    "resources": { "binaries/hooks/": "hooks/" }
+  }
+}

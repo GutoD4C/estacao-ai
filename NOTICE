@@ -1,0 +1,44 @@
+Estação I.A — Créditos e Licença
+
+Este projeto é derivado do ai-memory, criado por Fabio Akita:
+  https://github.com/akitaonrails/ai-memory
+
+A base de memória persistente, armazenamento SQLite, wiki Markdown portátil,
+consolidação de sessões, busca híbrida, servidor MCP, hooks de captura de
+agentes, workstreams gerenciados e estrutura base do painel web foi criada por
+Fabio Akita no projeto ai-memory (crates `ai-memory-core`, `ai-memory-store`,
+`ai-memory-wiki`, `ai-memory-consolidate`, `ai-memory-llm`, `ai-memory-mcp`,
+`ai-memory-hooks`, `ai-memory-workstream`, base de `ai-memory-web` e
+`ai-memory-cli`).
+
+A Estação I.A acrescenta a camada de orquestração multi-agentes (salas de chat
+2D e Chalé 3D com personagens caninos e estante de conhecimento, projetos 2D
+coordenados pelo Pensador, quadro de tarefas, Multi-Terminal, identidade e
+compartilhamento via Nostr, detecção de CLIs de IA e consumo) e distribui o
+binário `estacao-ai`.
+
+================================================================================
+Licença MIT (Texto original em LICENSE — tradução em português abaixo)
+================================================================================
+
+Licença MIT
+
+Direitos autorais (c) 2026 Fabio Akita
+
+Fica concedida permissão, gratuitamente, a qualquer pessoa que obtenha uma cópia
+deste software e arquivos de documentação associados (o "Software"), para lidar
+no Software sem restrições, incluindo, sem limitação, os direitos de
+usar, copiar, modificar, mesclar, publicar, distribuir, sublicenciar e/ou vender
+cópias do Software e permitir que as pessoas a quem o Software é
+fornecido o façam, sujeito às seguintes condições:
+
+O aviso de direitos autorais acima e este aviso de permissão devem ser incluídos
+em todas as cópias ou partes substanciais do Software.
+
+O SOFTWARE É FORNECIDO "NO ESTADO EM QUE SE ENCONTRA", SEM GARANTIA DE QUALQUER
+TIPO, EXPRESSA OU IMPLÍCITA, INCLUINDO, MAS NÃO SE LIMITANDO ÀS GARANTIAS DE
+COMERCIABILIDADE, ADEQUAÇÃO A UM FIM ESPECÍFICO E NÃO VIOLAÇÃO. EM NENHUM CASO
+OS AUTORES OU DETENTORES DOS DIREITOS AUTORAIS SERÃO RESPONSABILIZADOS POR
+QUAISQUER RECLAMAÇÕES, DANOS OU OUTRAS RESPONSABILIDADES, SEJA EM AÇÃO
+CONTRATUAL, EXTRACONTRATUAL OU DE OUTRA NATUREZA, DECORRENTE DE, OU EM CONEXÃO
+COM O SOFTWARE OU O USO OU OUTRAS NEGOCIAÇÕES NO SOFTWARE.

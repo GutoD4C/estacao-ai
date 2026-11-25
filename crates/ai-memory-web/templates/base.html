@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="{{ i18n.tag() }}" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d0d10">
+  <title>{% block title %}Estação-ai{% endblock %}</title>
+  <link rel="icon" href="static/logo.png" type="image/png">
+  {% include "_theme.html" %}
+  <link rel="stylesheet" href="static/tailwind.css">
+  <style>
+    .app-sidebar { transition: transform .18s ease, visibility .18s ease; }
+    .app-topbar, .app-content, .app-footer { transition: margin-left .18s ease, width .18s ease; }
+    .menu-button { display:inline-flex !important; align-items:center; gap:6px; padding:5px 10px; border:1px solid var(--dash-line); border-radius:8px; background:var(--dash-soft); color:var(--dash-text); font-size:12.5px; font-weight:600; cursor:pointer; }
+    .menu-button:hover { border-color:color-mix(in srgb,var(--dash-accent) 35%,var(--dash-line)); background:var(--dash-surface); }
+    body.nav-collapsed .app-sidebar { transform:translateX(-100%); visibility:hidden; }
+    body.nav-collapsed .app-topbar,
+    body.nav-collapsed .app-content,
+    body.nav-collapsed .app-footer { margin-left:0 !important; max-width:none !important; }
+    body.nav-collapsed.nav-open .app-sidebar { transform:translateX(0); visibility:visible; z-index:45; box-shadow:0 16px 48px rgba(0,0,0,.65); }
+    @media (max-width:960px) {
+      body.estacao-full .app-content, body.estacao-full-scroll .app-content { margin-left:0 !important; width:100vw !important; }
+      .sidebar-float-open { display:inline-flex; }
+    }
+  </style>
+</head>
+<body class="dashboard-shell">
+  <a id="skip-link" href="#main-content" class="skip-link">{{ i18n.text("web-skip-to-content") }}</a>
+  <button type="button" class="sidebar-float-open" id="sidebar-float-open" aria-label="Abrir menu lateral" title="Abrir menu lateral">☰ Menu</button>
+  <aside class="app-sidebar" id="app-navigation" aria-label="{{ i18n.text("web-workspace-navigation") }}">
+    <div class="app-sidebar-head">
+      <a class="app-brand" href="chat" data-app-link="chat"><img src="static/logo.png" alt="" width="30" height="30"><span>Estação-ai<small>Workspace de IA</small></span></a>
+      <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" aria-label="Recolher menu lateral" title="Recolher menu lateral">◧</button>
+    </div>
+    <nav aria-label="{{ i18n.text("web-main") }}" class="app-nav">
+      <p class="nav-label">Trabalho</p>
+      <a href="chat" data-nav="chat" {% block nav_chat_current %}{% endblock %}><span aria-hidden="true">◫</span>Chats</a>
+      <a href="projetos" data-nav="projetos" {% block nav_projetos_current %}{% endblock %}><span aria-hidden="true">▦</span>Projetos</a>
+      <a href="modelos" data-nav="modelos" {% block nav_agentes_current %}{% endblock %}><span aria-hidden="true">◎</span>Modelos de IA</a>
+      <a href="consumo" data-nav="consumo" {% block nav_consumo_current %}{% endblock %}><span aria-hidden="true">◔</span>Consumo e uso</a>
+      <p class="nav-label">Memória</p>
+      <a href="." data-nav="projects"><span aria-hidden="true">◈</span>Memória dos projetos</a>
+      <a href="graph" data-nav="graph" {% block nav_graph_current %}{% endblock %}><span aria-hidden="true">⌘</span>{{ i18n.text("web-knowledge-graph") }}</a>
+      <a href="pending" data-nav="pending" {% block nav_pending_current %}{% endblock %}><span aria-hidden="true">☷</span>{{ i18n.text("web-learning-review") }}</a>
+      <p class="nav-label">Sistema</p>
+      <a href="health" data-nav="health" {% block nav_health_current %}{% endblock %}><span aria-hidden="true">⌁</span>{{ i18n.text("web-server-health") }}</a>
+      <a href="docs" data-nav="docs" {% block nav_docs_current %}{% endblock %}><span aria-hidden="true">▤</span>{{ i18n.text("web-documentation") }}</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="theme-switch" role="group" aria-label="{{ i18n.text("web-color-theme") }}">
+        <button type="button" data-theme-choice="light" aria-pressed="false" title="{{ i18n.text("web-light-theme") }}">{{ i18n.text("web-light") }}</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false" title="{{ i18n.text("web-dark-theme") }}">{{ i18n.text("web-dark") }}</button>
+        <button type="button" data-theme-choice="system" aria-pressed="false" title="{{ i18n.text("web-follow-system-theme") }}">{{ i18n.text("web-system") }}</button>
+      </div>
+    </div>
+  </aside>
+  <button class="nav-backdrop" id="nav-backdrop" aria-label="{{ i18n.text("web-close-navigation") }}" hidden></button>
+  <header class="app-topbar">
+    <div class="app-topbar-content">
+      <button class="menu-button" id="nav-toggle" aria-controls="app-navigation" aria-expanded="false" aria-label="{{ i18n.text("web-open-navigation") }}" title="Mostrar/ocultar menu lateral">☰ Menu</button>
+      <div class="topbar-spacer"></div>
+      {% block header_actions %}
+      {% block header_search %}{% endblock %}
+      <button type="button" id="estacao-ai-logout" class="quiet-button" data-error="{{ i18n.text("web-log-out-failed") }}">{{ i18n.text("web-log-out") }}</button>
+      {% endblock %}
+    </div>
+  </header>
+  <main id="main-content" tabindex="-1" class="app-content">{% block content %}{% endblock %}</main>
+  <footer class="app-footer"><span>Estação-ai</span>{% block footer_version %}<span>v{{ crate::templates::VERSION }}</span>{% endblock %}</footer>
+  <script>
+  (function(){
+    var skip=document.getElementById("skip-link");
+    if(skip)skip.href=location.href.split("#")[0]+"#main-content";
+    var toggle=document.getElementById("nav-toggle");
+    var collapseBtn=document.getElementById("sidebar-collapse-btn");
+    var floatOpen=document.getElementById("sidebar-float-open");
+    var backdrop=document.getElementById("nav-backdrop");
+    var nav=document.getElementById("app-navigation");
+    var p=location.pathname;
+    var isChat=/\/chat\/?$/.test(p);
+    var isProjetoSingle=/\/projetos\/[^/]+\/?$/.test(p);
+    var isProjetosList=/\/projetos\/?$/.test(p);
+    var isEstacaoList=/\/(modelos|consumo)\/?$/.test(p);
+    if(isChat||isProjetoSingle){
+      document.body.classList.add("estacao-full");
+    }else if(isProjetosList||isEstacaoList){
+      document.body.classList.add("estacao-full-scroll");
+    }
+    var storageKey="estacao-sidebar-collapsed";
+    var savedCollapsed=false;
+    try{ savedCollapsed=localStorage.getItem(storageKey)==="1"; }catch(_){}
+    if(savedCollapsed||isProjetoSingle){ document.body.classList.add("nav-collapsed"); }
+    function setCollapsed(val,persist){
+      document.body.classList.toggle("nav-collapsed",val);
+      document.body.classList.remove("nav-open");
+      if(backdrop)backdrop.hidden=true;
+      if(toggle)toggle.setAttribute("aria-expanded",String(!val));
+      if(persist){ try{ localStorage.setItem(storageKey,val?"1":"0"); }catch(_){} }
+    }
+    function openOverlay(){
+      if(window.innerWidth>960){
+        setCollapsed(false,true);
+      }else{
+        document.body.classList.add("nav-open");
+        if(backdrop)backdrop.hidden=false;
+        if(toggle)toggle.setAttribute("aria-expanded","true");
+      }
+    }
+    function closeOverlay(){
+      document.body.classList.remove("nav-open");
+      if(backdrop)backdrop.hidden=true;
+      if(toggle)toggle.setAttribute("aria-expanded","false");
+    }
+    window.EstacaoNav={
+      collapse:function(persist){ setCollapsed(true,Boolean(persist)); },
+      expand:function(persist){ setCollapsed(false,Boolean(persist)); },
+      toggle:function(){ setCollapsed(!document.body.classList.contains("nav-collapsed"),true); },
+      isCollapsed:function(){ return document.body.classList.contains("nav-collapsed"); }
+    };
+    if(collapseBtn)collapseBtn.addEventListener("click",function(){
+      if(window.innerWidth<=960)closeOverlay();
+      else setCollapsed(true,true);
+    });
+    if(floatOpen)floatOpen.addEventListener("click",openOverlay);
+    if(toggle)toggle.addEventListener("click",function(){
+      if(window.innerWidth>960&&!document.body.classList.contains("nav-open")){
+        setCollapsed(!document.body.classList.contains("nav-collapsed"),true);
+        return;
+      }
+      if(document.body.classList.contains("nav-open"))closeOverlay();
+      else openOverlay();
+    });
+    if(backdrop)backdrop.addEventListener("click",closeOverlay);
+    document.addEventListener("keydown",function(e){if(e.key==="Escape"&&document.body.classList.contains("nav-open")){closeOverlay();}});
+
+    // Navegação do site: mantém links reais (<a href>) e ao clicar em Chats na própria aba volta ao Menu de Chats
+    var currentPath=location.pathname.replace(/\/$/,"");
+    nav.querySelectorAll("a[data-nav]").forEach(function(a){
+      var abs=new URL(a.href,document.baseURI);
+      var path=abs.pathname.replace(/\/$/,"");
+      if(path===currentPath||(a.dataset.nav==="projetos"&&currentPath.indexOf(path+"/")===0)||(a.dataset.nav==="projects"&&currentPath.indexOf(path+"/w/")===0)){
+        a.setAttribute("aria-current","page");
+      }
+      a.addEventListener("click",function(ev){
+        closeOverlay();
+        if(!ev.ctrlKey&&!ev.metaKey&&!ev.shiftKey&&ev.button===0&&a.dataset.nav==="chat"&&location.pathname.replace(/\/$/,"")===path&&window.EstacaoApp&&window.EstacaoApp.voltarMenuChats){
+          ev.preventDefault();
+          window.EstacaoApp.voltarMenuChats();
+        }
+      });
+    });
+  })();
+  </script>
+<script>
+(function(){
+    var btn=document.getElementById("estacao-ai-logout");
+    if(btn){ {% include "_js_cookie.html" %}
+      // Only a browser session (it carries the CSRF cookie) can be ended
+      // here. A Basic sign-in or a server without auth has none, so a
+      // "Log out" there would claim a sign-out that never happens.
+      if(!cookie("ai_memory_csrf")){btn.remove();}
+      // Leave the page only once the server ended the session, or answers
+      // that there is none (401). Otherwise say so and keep the button.
+      else btn.addEventListener("click",function(){var base=document.querySelector('meta[name="estacao-ai-base-path"]')?.content||"";var login=document.querySelector('meta[name="estacao-ai-login-path"]')?.content||(base+"/web/login");var failed=document.getElementById("estacao-ai-logout-error");if(failed)failed.remove();btn.disabled=true;fetch(base+"/auth/logout",{method:"POST",credentials:"include",headers:{"Accept":"application/json","X-CSRF-Token":decodeURIComponent(cookie("ai_memory_csrf")||"")}}).then(function(r){if(!r.ok&&r.status!==401)throw new Error("logout "+r.status);location.assign(login);}).catch(function(){btn.disabled=false;var note=document.createElement("span");note.id="estacao-ai-logout-error";note.setAttribute("role","alert");note.textContent=btn.dataset.error;btn.after(note);});});
+    }
+
+})();
+</script>
+</body>
+</html>

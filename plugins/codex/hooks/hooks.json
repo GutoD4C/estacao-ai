@@ -1,0 +1,81 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex session-start",
+            "commandWindows": "estacao-ai hook --event session-start --agent codex"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex user-prompt-submit",
+            "commandWindows": "estacao-ai hook --event user-prompt-submit --agent codex"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex pre-tool-use",
+            "commandWindows": "estacao-ai hook --event pre-tool-use --agent codex"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex post-tool-use",
+            "commandWindows": "estacao-ai hook --event post-tool-use --agent codex"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex pre-compact",
+            "commandWindows": "estacao-ai hook --event pre-compact --agent codex"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex stop",
+            "commandWindows": "estacao-ai hook --event stop --agent codex"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/scripts/estacao-ai-hook\" codex session-end",
+            "commandWindows": "estacao-ai hook --event session-end --agent codex"
+          }
+        ]
+      }
+    ]
+  }
+}

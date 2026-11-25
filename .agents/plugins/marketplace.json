@@ -1,0 +1,22 @@
+{
+  "name": "estacao-ai",
+  "interface": {
+    "displayName": "estacao-ai"
+  },
+  "plugins": [
+    {
+      "name": "estacao-ai",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/akitaonrails/ai-memory.git",
+        "path": "plugins/codex",
+        "ref": "v3.4.7"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Estação-ai
+GenericName=Estação Orbital de IA
+Comment=Ambiente multi-agentes de IA com memória por projeto e memória global
+Exec=estacao-ai app
+Icon=estacao-ai
+Terminal=false
+Categories=Development;IDE;Utility;
+Keywords=AI;IA;Agents;Memory;Claude;Codex;Gemini;Estacao;
+StartupNotify=true
+StartupWMClass=EstacaoAI

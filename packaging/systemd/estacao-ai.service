@@ -1,0 +1,24 @@
+[Unit]
+Description=estacao-ai MCP server
+Documentation=https://github.com/akitaonrails/ai-memory
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=estacao-ai
+Group=estacao-ai
+EnvironmentFile=-/etc/estacao-ai/env
+ExecStart=/usr/bin/estacao-ai --data-dir /var/lib/estacao-ai --config /etc/estacao-ai/config.toml serve --transport http --enable-web
+Restart=on-failure
+RestartSec=5s
+StateDirectory=estacao-ai
+StateDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/estacao-ai
+
+[Install]
+WantedBy=multi-user.target

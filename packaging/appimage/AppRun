@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+export PATH="${HERE}/usr/bin:${PATH}"
+
+if [ $# -eq 0 ]; then
+  exec "${HERE}/usr/bin/estacao-ai" app
+else
+  exec "${HERE}/usr/bin/estacao-ai" "$@"
+fi

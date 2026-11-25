@@ -1,0 +1,94 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage build for the estacao-ai MCP server.
+# Builder: rust:1.95-slim with the release binary cached against
+#          BuildKit's cargo registry + target caches.
+# Runtime: debian:bookworm-slim with a non-root `estacao-ai` user that
+#          owns /data. CA certificates included for outgoing HTTPS (LLM
+#          providers in M6+).
+#
+# The default final target builds the binary from source. Release automation and
+# CI can target the prebuilt runtime stages after downloading native release
+# artifacts, avoiding duplicate Rust compiles in Docker jobs.
+#
+# Both base images are pinned by the digest of their multi-arch index, so a
+# rebuild of the same commit gets the same OS and toolchain. Dependabot
+# (`.github/dependabot.yml`, `docker`) proposes digest refreshes; the Rust
+# tag follows `rust-toolchain.toml` and is bumped together with it.
+
+FROM rust:1.95-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS builder
+WORKDIR /work
+# Optional console; default builds retain the existing feature set.
+ARG AI_MEMORY_FEATURES=""
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config build-essential curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock rust-toolchain.toml deny.toml LICENSE ./
+COPY crates ./crates
+# `evals/` is a workspace member (off-tree A/B harness, not shipped
+# in the image — but Cargo refuses to parse the workspace manifest
+# if a declared member doesn't exist on disk). Copy the dir so the
+# manifest resolves; `-p ai-memory-cli` keeps the binary build narrow.
+COPY evals ./evals
+# `docs/logo*.png` are include_bytes!'d by ai-memory-web's static
+# routes at compile time, so they must be in the build context.
+COPY docs ./docs
+# Product documentation embeds the current changelog into the web binary.
+COPY CHANGELOG.md ./
+# `estacao-ai setup` renders the user service from these packaged templates,
+# include_str!'d at compile time.
+COPY packaging/systemd ./packaging/systemd
+COPY packaging/launchd ./packaging/launchd
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/work/target \
+    cargo build --locked --release -p ai-memory-cli --features "${AI_MEMORY_FEATURES}" \
+ && cp target/release/estacao-ai /usr/local/bin/estacao-ai
+
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS runtime-base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 1000 --user-group --home-dir /data \
+         --shell /usr/sbin/nologin estacao-ai \
+ && mkdir -p /data \
+ && chown -R estacao-ai:estacao-ai /data
+# Lifecycle-hook scripts bundled into the image so docker-only users
+# can `estacao-ai setup-agent` without needing a repo checkout. The
+# scripts live on a path scanned by `install_hooks::resolve_hooks_dir`
+# (and by `setup_agent::resolve_source`).
+COPY hooks /usr/local/share/estacao-ai/hooks
+ENV AI_MEMORY_DATA_DIR=/data
+# Allow Docker Desktop's host alias by default so the macOS wrapper's
+# thin-client commands — which reach the loopback-published server from a
+# one-shot helper container via host.docker.internal — aren't rejected by the
+# Host-header DNS-rebinding guard (issue #107). This widens only the *image*
+# default; native (non-Docker) installs keep the loopback-only default, and
+# exposed/homelab deployments still set their own `AI_MEMORY_ALLOWED_HOSTS`,
+# which replaces this value entirely.
+ENV AI_MEMORY_ALLOWED_HOSTS="localhost,127.0.0.1,::1,host.docker.internal"
+# Tell the server it is containerised, so the unauthenticated-bind guard in
+# `serve` knows the `0.0.0.0` bind below is a namespace requirement rather
+# than evidence of network exposure (issue #407). `/.dockerenv` covers Docker
+# and `/run/.containerenv` covers Podman; this makes the signal explicit and
+# runtime-independent.
+ENV AI_MEMORY_IN_CONTAINER=1
+WORKDIR /data
+EXPOSE 49374
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD ["/usr/local/bin/estacao-ai", "status"]
+# Reap orphaned grandchildren of helper processes while forwarding shutdown
+# signals to the server (which handles SIGTERM and SIGINT itself).
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/estacao-ai"]
+CMD ["serve", "--transport", "http", "--bind", "0.0.0.0:49374", "--enable-web"]
+
+FROM runtime-base AS runtime-prebuilt-amd64
+COPY --chmod=0755 dist/docker/estacao-ai-linux-x86_64/estacao-ai /usr/local/bin/estacao-ai
+USER estacao-ai
+
+FROM runtime-base AS runtime-prebuilt-arm64
+COPY --chmod=0755 dist/docker/estacao-ai-linux-aarch64/estacao-ai /usr/local/bin/estacao-ai
+USER estacao-ai
+
+FROM runtime-base AS runtime-source
+COPY --from=builder /usr/local/bin/estacao-ai /usr/local/bin/estacao-ai
+USER estacao-ai

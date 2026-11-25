@@ -1,0 +1,21 @@
+{
+  "name": "estacao-ai",
+  "owner": {
+    "name": "AkitaOnRails",
+    "url": "https://github.com/akitaonrails"
+  },
+  "description": "estacao-ai plugins: lifecycle capture and memory tools for coding agents, backed by your own estacao-ai server.",
+  "plugins": [
+    {
+      "name": "estacao-ai",
+      "description": "Long-term memory across sessions and harnesses.",
+      "version": "3.4.7",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/akitaonrails/ai-memory.git",
+        "path": "plugins/claude-code",
+        "ref": "v3.4.7"
+      }
+    }
+  ]
+}

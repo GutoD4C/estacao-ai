@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Atalho da Estação I.A
+Exec=/usr/lib/estacao-ai/instalar-atalho
+Terminal=false
+NoDisplay=true

@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# estacao-ai-snapshot.sh
+#
+# Daily snapshot of an estacao-ai single-user install:
+#   1. rsync the mutable data dir into a git-tracked mirror checkout,
+#      excluding derived state and secrets (see .gitignore in this dir).
+#   2. commit changes and push the mirror, including any earlier commits
+#      whose push failed.
+#   3. ask the running server for a consistent online backup (wiki + SQLite +
+#      data-dir config.toml) and write it to a second location.
+#
+# Assumptions:
+#   - You already ran `git init && git remote add origin <url>` inside
+#     $REPO_DIR and staged the .gitignore shipped alongside this file.
+#   - The user running this script has an ssh-agent or credential helper set
+#     up so `git push` is non-interactive.
+#   - $DATA_SRC is the estacao-ai data dir (`estacao-ai status` prints it) and
+#     $CFG_SRC is where your provider env-file lives.
+#
+# Configure these variables for your host, or export them from the
+# systemd unit's Environment= lines. Sample values are commented out.
+: "${REPO_DIR:=$HOME/estacao-ai-backup}"           # local mirror checkout, `git init`'d and pointed at a remote
+: "${DATA_SRC:=$HOME/.local/share/estacao-ai}"     # estacao-ai data dir
+: "${CFG_SRC:=$HOME/.config/estacao-ai}"           # estacao-ai config dir (may hold provider env files)
+: "${TARBALL_DIR:=$HOME/backups/estacao-ai}"       # second-location tarball drop (external disk, network share, ...)
+: "${LOG_DIR:=$HOME/logs/estacao-ai-snapshot}"     # rotated per run
+: "${TARBALL_RETENTION_DAYS:=30}"                 # how long to keep tarballs
+: "${LOG_RETENTION_DAYS:=30}"                     # how long to keep run logs
+: "${SECRET_EXCLUDES:=*.env auth.json .secrets *.pem *.key *.crt}"  # glob patterns for files never to sync
+
+set -euo pipefail
+
+stamp=$(date +%Y-%m-%d)
+log="$LOG_DIR/estacao-ai-snapshot_$(date +%Y%m%d-%H%M%S).log"
+mkdir -p "$LOG_DIR" "$TARBALL_DIR"
+exec >"$log" 2>&1
+
+echo "=== $(date -Iseconds) estacao-ai snapshot start ==="
+echo "data_src=$DATA_SRC"
+echo "cfg_src=$CFG_SRC"
+echo "repo_dir=$REPO_DIR"
+echo "tarball_dir=$TARBALL_DIR"
+
+if [ ! -d "$DATA_SRC" ]; then
+    echo "ERROR: $DATA_SRC does not exist. Aborting." >&2
+    exit 1
+fi
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "ERROR: $REPO_DIR is not a git repository (run 'git init' and 'git remote add origin <url>' first)." >&2
+    exit 1
+fi
+
+# Build a comma-free rsync exclude list. The .gitignore in the mirror repo
+# also keeps derived state out of commits, but excluding here keeps the rsync
+# working set small.
+rsync_excludes=(
+    --exclude=.git/
+    --exclude=models/         # embedder weights, redownloadable
+    --exclude=db/             # SQLite index, derived from wiki via `estacao-ai reindex`
+    --exclude=logs/           # rotated tracing output
+    --exclude=.serve.lock     # server pidfile
+    --exclude=auth-tokens/    # per-profile bearer tokens, incl. the root token (plaintext, 0600) — NEVER mirror
+    --exclude=auth-token      # hook bearer token (plaintext, 0600)
+    --exclude=auth-header     # hook Authorization header value (plaintext, 0600)
+    --exclude=hook-spool/     # pre-delivery hook spool (transient; may hold un-sanitized payloads)
+)
+for glob in $SECRET_EXCLUDES; do
+    rsync_excludes+=(--exclude="$glob")
+done
+
+echo "--- rsync data ---"
+rsync -a --delete "${rsync_excludes[@]}" "$DATA_SRC/" "$REPO_DIR/data/"
+
+echo "--- rsync config (secrets excluded) ---"
+config_excludes=()
+for glob in $SECRET_EXCLUDES; do
+    config_excludes+=(--exclude="$glob")
+done
+rsync -a --delete "${config_excludes[@]}" "$CFG_SRC/" "$REPO_DIR/config/"
+
+cd "$REPO_DIR"
+git add -A
+
+if git diff --cached --quiet; then
+    echo "no changes since last snapshot; skipping commit"
+else
+    git commit -m "auto: snapshot $stamp" | tail -3
+fi
+echo "--- push ---"
+push_status=0
+timeout 180 git push origin "$(git rev-parse --abbrev-ref HEAD)" 2>&1 | tail -10 || push_status=$?
+if (( push_status != 0 )); then
+    echo "mirror push failed (status $push_status); continuing with the online snapshot" >&2
+fi
+
+echo "--- online data snapshot to second location ---"
+tarball="$TARBALL_DIR/estacao-ai-$stamp.tar.gz"
+estacao-ai --data-dir "$DATA_SRC" backup --to "$tarball"
+echo "tarball: $(ls -lh "$tarball" | awk '{print $5, $9}')"
+
+echo "--- rotate tarballs (retention: ${TARBALL_RETENTION_DAYS}d) ---"
+find "$TARBALL_DIR" -maxdepth 1 -name 'estacao-ai-*.tar.gz' -type f \
+    -mtime "+${TARBALL_RETENTION_DAYS}" -delete -print
+
+echo "--- rotate logs (retention: ${LOG_RETENTION_DAYS}d) ---"
+find "$LOG_DIR" -maxdepth 1 -name 'estacao-ai-snapshot_*.log' -type f \
+    -mtime "+${LOG_RETENTION_DAYS}" -delete -print
+
+if (( push_status != 0 )); then
+    echo "=== $(date -Iseconds) online snapshot done; mirror push failed ===" >&2
+    exit "$push_status"
+fi
+echo "=== $(date -Iseconds) estacao-ai snapshot done ==="

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ titulo }} · Estação-ai{% endblock %}
+
+{% block nav_chat_current %}{% if pagina == "chat" %}aria-current="page"{% endif %}{% endblock %}
+{% block nav_projetos_current %}{% if pagina == "projetos" || pagina == "projeto" %}aria-current="page"{% endif %}{% endblock %}
+{% block nav_agentes_current %}{% if pagina == "agentes" %}aria-current="page"{% endif %}{% endblock %}
+{% block nav_consumo_current %}{% if pagina == "consumo" %}aria-current="page"{% endif %}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="static/estacao.css">
+
+<div class="est" id="est" data-bloqueado data-pagina="{{ pagina }}" data-projeto="{{ projeto }}">
+  <p class="muted">Carregando…</p>
+</div>
+
+<script src="static/three.min.js"></script>
+<script type="module" src="static/estacao-3d.js"></script>
+
+<script type="module" src="static/estacao.js"></script>
+{% endblock %}

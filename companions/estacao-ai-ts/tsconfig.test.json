@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build",
+    "sourceMap": true,
+    "paths": {
+      "estacao-ai-ts": ["./src/index.ts"],
+      "estacao-ai-ts/admin": ["./src/admin.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts"]
+}
