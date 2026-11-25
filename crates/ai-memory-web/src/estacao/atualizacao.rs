@@ -5,15 +5,18 @@
 //! oficial da release, valida o `SHA256SUMS.txt` e aplica a atualização.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::Query;
-use axum::http::StatusCode;
+use axum::extract::{Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use super::http::autorizar;
+use crate::state::WebState;
 
 const GITHUB_REPO_PADRAO: &str = "GutoD4C/estacao-ai";
 const VERSAO_ATUAL: &str = env!("CARGO_PKG_VERSION");
@@ -324,14 +327,30 @@ fn substituir_binario_atomico(novo_bin: &Path, destino: &Path) -> Result<(), Str
     Ok(())
 }
 
+pub(crate) fn nome_arquivo_seguro(nome: &str) -> Result<String, String> {
+    let limpo = nome.trim();
+    if limpo.is_empty()
+        || limpo.contains('/')
+        || limpo.contains('\\')
+        || limpo.contains("..")
+        || !limpo
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err("Nome de arquivo de atualização inválido.".to_owned());
+    }
+    Ok(limpo.to_owned())
+}
+
 #[cfg(target_os = "linux")]
 fn aplicar_deb_linux(
     deb_bytes: &[u8],
     nome_arquivo: &str,
 ) -> Result<(String, bool, Option<String>), String> {
+    let nome_seguro = nome_arquivo_seguro(nome_arquivo)?;
     let tmp_dir =
         tempfile::tempdir().map_err(|e| format!("erro ao criar pasta temporária: {e}"))?;
-    let deb_path = tmp_dir.path().join(nome_arquivo);
+    let deb_path = tmp_dir.path().join(&nome_seguro);
     std::fs::write(&deb_path, deb_bytes).map_err(|e| format!("erro ao gravar .deb: {e}"))?;
 
     let extrair_dir = tmp_dir.path().join("extraido");
@@ -383,14 +402,14 @@ fn aplicar_deb_linux(
         .map(|h| h.join("Downloads"))
         .filter(|d| d.is_dir())
         .unwrap_or_else(std::env::temp_dir);
-    let salvo = destino_dir.join(nome_arquivo);
+    let salvo = destino_dir.join(&nome_seguro);
     std::fs::write(&salvo, deb_bytes).map_err(|e| format!("erro ao salvar .deb: {e}"))?;
     let _ = std::process::Command::new("xdg-open").arg(&salvo).spawn();
     Ok((
         format!(
             "Pacote baixado e verificado em {}. Conclua a instalação pelo instalador do sistema ou execute `sudo apt install ./{}`.",
             salvo.display(),
-            nome_arquivo
+            nome_seguro
         ),
         false,
         Some(salvo.display().to_string()),
@@ -402,7 +421,8 @@ fn aplicar_exe_windows(
     exe_bytes: &[u8],
     nome_arquivo: &str,
 ) -> Result<(String, bool, Option<String>), String> {
-    let destino = std::env::temp_dir().join(nome_arquivo);
+    let nome_seguro = nome_arquivo_seguro(nome_arquivo)?;
+    let destino = std::env::temp_dir().join(&nome_seguro);
     std::fs::write(&destino, exe_bytes).map_err(|e| format!("erro ao gravar instalador: {e}"))?;
     std::process::Command::new(&destino)
         .spawn()
@@ -415,7 +435,15 @@ fn aplicar_exe_windows(
     ))
 }
 
-pub(crate) async fn api_aplicar_atualizacao() -> Response {
+pub(crate) async fn api_aplicar_atualizacao(
+    axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
+    State(state): State<Arc<WebState>>,
+    level: Option<axum::Extension<ai_memory_core::AuthLevel>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(recusa) = autorizar(&i18n, &state, level, &headers).await {
+        return recusa;
+    }
     let rel = match consultar_github_release().await {
         Ok(r) => r,
         Err(erro) => {
@@ -499,41 +527,65 @@ pub(crate) async fn api_aplicar_atualizacao() -> Response {
         }
     };
 
-    // Verifica SHA-256 quando SHA256SUMS.txt está publicado na release.
-    if let Some(sha_asset) = encontrar_sha256_asset(&rel.assets) {
-        match baixar_bytes_limitado(&client, &sha_asset.browser_download_url).await {
-            Ok(sha_bytes) => {
-                let texto = String::from_utf8_lossy(&sha_bytes);
-                if let Some(esperado) = extrair_sha256_esperado(&texto, &asset.name) {
-                    let calculado = format!("{:x}", Sha256::digest(&bytes));
-                    if calculado != esperado {
-                        return (
-                            StatusCode::BAD_GATEWAY,
-                            Json(RespostaAplicar {
-                                ok: false,
-                                versao: Some(versao_legivel(&rel.tag_name)),
-                                mensagem: "Falha na verificação SHA-256 do arquivo baixado. Atualização cancelada por segurança.".to_owned(),
-                                reiniciando: false,
-                                arquivo_baixado: None,
-                            }),
-                        )
-                            .into_response();
-                    }
-                }
-            }
-            Err(erro) => {
+    // Exige SHA256SUMS.txt publicado e hash correspondente na release (fail-closed).
+    let Some(sha_asset) = encontrar_sha256_asset(&rel.assets) else {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(RespostaAplicar {
+                ok: false,
+                versao: Some(versao_legivel(&rel.tag_name)),
+                mensagem:
+                    "SHA256SUMS.txt ausente na release do GitHub. Atualização cancelada por segurança."
+                        .to_owned(),
+                reiniciando: false,
+                arquivo_baixado: None,
+            }),
+        )
+            .into_response();
+    };
+    match baixar_bytes_limitado(&client, &sha_asset.browser_download_url).await {
+        Ok(sha_bytes) => {
+            let texto = String::from_utf8_lossy(&sha_bytes);
+            let Some(esperado) = extrair_sha256_esperado(&texto, &asset.name) else {
                 return (
                     StatusCode::BAD_GATEWAY,
                     Json(RespostaAplicar {
                         ok: false,
                         versao: Some(versao_legivel(&rel.tag_name)),
-                        mensagem: format!("Não foi possível baixar SHA256SUMS.txt: {erro}"),
+                        mensagem: "Hash SHA-256 do pacote não encontrado em SHA256SUMS.txt. Atualização cancelada por segurança.".to_owned(),
+                        reiniciando: false,
+                        arquivo_baixado: None,
+                    }),
+                )
+                    .into_response();
+            };
+            let calculado = format!("{:x}", Sha256::digest(&bytes));
+            if calculado != esperado {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(RespostaAplicar {
+                        ok: false,
+                        versao: Some(versao_legivel(&rel.tag_name)),
+                        mensagem: "Falha na verificação SHA-256 do arquivo baixado. Atualização cancelada por segurança.".to_owned(),
                         reiniciando: false,
                         arquivo_baixado: None,
                     }),
                 )
                     .into_response();
             }
+        }
+        Err(erro) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(RespostaAplicar {
+                    ok: false,
+                    versao: Some(versao_legivel(&rel.tag_name)),
+                    mensagem: format!("Não foi possível baixar SHA256SUMS.txt: {erro}"),
+                    reiniciando: false,
+                    arquivo_baixado: None,
+                }),
+            )
+                .into_response();
         }
     }
 
@@ -635,5 +687,17 @@ mod tests {
             escolher_asset(&assets, "windows", "x86_64").map(|a| a.name.as_str()),
             Some("Estacao-ai-Setup-win10-11-x64.exe")
         );
+    }
+
+    #[test]
+    fn nome_arquivo_seguro_rejeita_path_traversal() {
+        assert_eq!(
+            nome_arquivo_seguro("estacao-ai_1.7.0_amd64.deb").as_deref(),
+            Ok("estacao-ai_1.7.0_amd64.deb")
+        );
+        assert!(nome_arquivo_seguro("../evil.deb").is_err());
+        assert!(nome_arquivo_seguro("/etc/passwd").is_err());
+        assert!(nome_arquivo_seguro("..\\evil.exe").is_err());
+        assert!(nome_arquivo_seguro("").is_err());
     }
 }

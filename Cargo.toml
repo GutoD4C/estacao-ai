@@ -168,7 +168,7 @@ flate2 = "1"
 # Already in the lockfile via candle-core. Keep default-features off so we
 # do not pull bzip2/`libbz2-rs-sys` (license not in deny allowlist); Deflate
 # covers PowerShell Compress-Archive release zips and Stored test fixtures.
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+zip = { version = "9.8", default-features = false, features = ["deflate"] }
 
 # Native transcript reading: Codex keeps a rollout it has not written for a
 # week as `.jsonl.zst`, so the workstream adapter needs a zstd decoder to find
@@ -198,9 +198,9 @@ git2 = { version = "0.21", default-features = false, features = ["vendored-libgi
 # path keeps a populated store.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
 # Local (in-process, pure-Rust) embeddings — 2.0 item 5.
-candle-core = "0.11"
-candle-nn = "0.11"
-candle-transformers = "0.11"
+candle-core = "0.11.1"
+candle-nn = "0.11.1"
+candle-transformers = "0.11.1"
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 futures-util = "0.3"
 async-trait = "0.1"
@@ -208,14 +208,6 @@ async-trait = "0.1"
 # Testing.
 tempfile = "3"
 rstest = "0.26"
-
-# Candle 0.11 requires `zip ^8.6`, but crates.io yanked every compatible 8.x
-# release after publishing zip 9. Pin upstream's official 8.x security
-# backport for GHSA-m665-v7pm-7grj so fresh source resolution stays possible
-# without retaining the vulnerable v8.6.0 release. Remove this patch when
-# Candle publishes a release compatible with zip 9.
-[patch.crates-io]
-zip = { git = "https://github.com/zip-rs/zip2", rev = "507c5c76ddd4cde767e64832fc6f848c51a99e44" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

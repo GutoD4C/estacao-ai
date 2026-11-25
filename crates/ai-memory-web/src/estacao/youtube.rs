@@ -123,8 +123,11 @@ fn encode_query_component(s: &str) -> String {
     out
 }
 
+const MAX_YOUTUBE_QUERY_CHARS: usize = 200;
+const MAX_YOUTUBE_HTML_BYTES: usize = 4 * 1024 * 1024;
+
 pub(crate) async fn api_youtube(Query(q): Query<YoutubeQuery>) -> Response {
-    let query = q.q.trim().to_owned();
+    let query: String = q.q.trim().chars().take(MAX_YOUTUBE_QUERY_CHARS).collect();
     if query.is_empty() {
         return Json(serde_json::json!({ "query": "", "results": [] })).into_response();
     }
@@ -134,10 +137,22 @@ pub(crate) async fn api_youtube(Query(q): Query<YoutubeQuery>) -> Response {
     );
     let out = match YOUTUBE_CLIENT.as_ref() {
         Some(client) => match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => match resp.text().await {
-                Ok(html) => extrair_resultados_youtube(&html),
-                Err(_) => Vec::new(),
-            },
+            Ok(resp) if resp.status().is_success() => {
+                let excede = resp
+                    .content_length()
+                    .is_some_and(|len| len as usize > MAX_YOUTUBE_HTML_BYTES);
+                if excede {
+                    Vec::new()
+                } else {
+                    match resp.bytes().await {
+                        Ok(bytes) if bytes.len() <= MAX_YOUTUBE_HTML_BYTES => {
+                            let html = String::from_utf8_lossy(&bytes);
+                            extrair_resultados_youtube(&html)
+                        }
+                        _ => Vec::new(),
+                    }
+                }
+            }
             _ => Vec::new(),
         },
         None => Vec::new(),

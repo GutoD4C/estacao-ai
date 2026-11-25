@@ -841,26 +841,42 @@ pub(crate) async fn api_acao(
             agentes_remotos,
         } => {
             est.mudar(|e| {
+                const COMANDO_REMOTO: &str = "echo '(agente remoto Nostr)'";
                 projeto.nome = projeto.nome.trim().to_owned();
                 if projeto.nome.is_empty() {
                     return Err("Sala compartilhada sem nome.".into());
                 }
                 projeto.compartilhado = true;
+                // Salas sincronizadas de terceiros nunca definem pasta local ou escopo de memória arbitrário.
+                projeto.pasta.clear();
+                projeto.memoria.clear();
+                let meu_npub = e.nostr_perfil.npub.trim().to_owned();
                 for mut ag in agentes_remotos {
                     if ag.id.trim().is_empty() || ag.nome.trim().is_empty() {
                         continue;
                     }
+                    // Segurança: nunca aceitar comando shell arbitrário de um contato remoto.
+                    ag.comando = COMANDO_REMOTO.into();
+                    ag.execucoes = 0;
+                    ag.segundos = 0;
+                    ag.uso.clear();
                     if let Some(atual) = e.agentes.iter_mut().find(|a| a.id == ag.id) {
-                        atual.nome = ag.nome;
-                        atual.fornecedor = ag.fornecedor;
-                        atual.modelo = ag.modelo;
-                        atual.funcao = ag.funcao;
-                        atual.grupo = ag.grupo;
-                        atual.dono_npub = ag.dono_npub;
-                        atual.raca_cachorro = ag.raca_cachorro;
+                        // Nunca sobrescrever um agente que pertence ao operador local.
+                        let eh_local = atual.dono_npub.trim().is_empty()
+                            || (!meu_npub.is_empty() && atual.dono_npub.trim() == meu_npub);
+                        if !eh_local {
+                            atual.nome = ag.nome;
+                            atual.fornecedor = ag.fornecedor;
+                            atual.modelo = ag.modelo;
+                            atual.funcao = ag.funcao;
+                            atual.grupo = ag.grupo;
+                            atual.dono_npub = ag.dono_npub;
+                            atual.raca_cachorro = ag.raca_cachorro;
+                            atual.comando = COMANDO_REMOTO.into();
+                        }
                     } else {
-                        if ag.comando.trim().is_empty() {
-                            ag.comando = "echo '(agente remoto Nostr)'".into();
+                        if ag.dono_npub.trim().is_empty() || ag.dono_npub.trim() == meu_npub {
+                            ag.dono_npub = "remoto".into();
                         }
                         e.agentes.push(ag);
                     }
@@ -898,10 +914,19 @@ pub(crate) async fn api_acao(
 }
 
 async fn testar_agente(est: Arc<Estacao>, id: &str) -> Result<Option<String>, String> {
-    let ag = {
+    let (ag, meu_npub) = {
         let e = est.estado.lock().await;
-        e.agente(id).cloned().ok_or("Modelo inexistente.")?
+        (
+            e.agente(id).cloned().ok_or("Modelo inexistente.")?,
+            e.nostr_perfil.npub.trim().to_owned(),
+        )
     };
+    let dono = ag.dono_npub.trim();
+    if ag.comando.trim() == "echo '(agente remoto Nostr)'"
+        || (!dono.is_empty() && !meu_npub.is_empty() && dono != meu_npub)
+    {
+        return Err("Agentes remotos de outros contatos não são executados localmente.".into());
+    }
     if !cli_encontrada(&ag.comando) {
         return Err(format!(
             "CLI não encontrada no sistema para o comando: {}",

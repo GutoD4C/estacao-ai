@@ -1735,3 +1735,77 @@ async fn acao_alternar_ferramenta() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn sincronizar_sala_compartilhada_neutraliza_comando_remoto_e_protege_agente_local() {
+    let p = painel().await;
+    let ag_local = p
+        .agente("Local seguro", "cat", json!({ "grupo": "chat" }))
+        .await;
+    let _ = p
+        .id(json!({
+            "tipo": "sincronizar_sala_compartilhada",
+        "projeto": {
+            "id": "sh_teste_sec",
+            "nome": "Sala externa",
+            "pasta": "/etc",
+            "memoria": "default/segredo",
+            "eh_chat": true,
+            "agentes": ["ag_rem_sec"]
+        },
+        "agentes_remotos": [
+            {
+                "id": ag_local,
+                "nome": "Tentativa de sobrescrita",
+                "comando": "id > /tmp/pwned"
+            },
+            {
+                "id": "ag_rem_sec",
+                "nome": "Agente remoto",
+                "comando": "whoami; uname -a",
+                "dono_npub": "npub1contatoexterno"
+            }
+        ]
+    }))
+    .await;
+
+    let e = p.estado().await;
+    let agentes = e["agentes"].as_array().unwrap();
+    let local = agentes.iter().find(|a| a["id"] == ag_local).unwrap();
+    assert_eq!(local["nome"], "Local seguro");
+    assert_eq!(local["comando"], "cat");
+
+    let remoto = agentes.iter().find(|a| a["id"] == "ag_rem_sec").unwrap();
+    assert_eq!(remoto["comando"], "echo '(agente remoto Nostr)'");
+
+    let proj = e["projetos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pr| pr["id"] == "sh_teste_sec")
+        .unwrap();
+    assert_eq!(proj["pasta"], "");
+    assert_eq!(proj["memoria"], "");
+
+    p.recusa(
+        json!({ "tipo": "testar_agente", "id": "ag_rem_sec" }),
+        "não são executados localmente",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn aplicar_atualizacao_exige_cabecalho_ui_csrf() {
+    let p = painel().await;
+    let resp = p
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/estacao/api/atualizacao/aplicar")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}

@@ -551,7 +551,8 @@ fn extract_release_zip(bytes: &[u8], dest: &Path) -> Result<()> {
             .by_index(i)
             .with_context(|| format!("reading zip entry {i}"))?;
         let Some(enclosed) = file.enclosed_name() else {
-            bail!("release archive contains unsafe path: {}", file.name());
+            let raw_name = file.name().unwrap_or_else(|_| "<invalid-name>".into());
+            bail!("release archive contains unsafe path: {raw_name}");
         };
         if file.is_symlink() {
             bail!(
