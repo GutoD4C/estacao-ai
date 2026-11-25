@@ -2065,7 +2065,7 @@ mod tests {
     #[test]
     fn release_base_url_prefers_config_override() {
         let mut config = Config::default();
-        assert!(release_base_url(&config).contains("github.com/akitaonrails/ai-memory/releases"));
+        assert!(release_base_url(&config).contains("github.com/GutoD4C/estacao-ai/releases"));
         config.release_base_url = Some(" http://127.0.0.1:9/releases ".into());
         assert_eq!(release_base_url(&config), "http://127.0.0.1:9/releases");
     }
