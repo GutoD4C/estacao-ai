@@ -43,7 +43,7 @@ Name: "{autodesktop}\Estação-ai"; Filename: "{app}\estacao-ai.exe"; Parameters
 
 [Run]
 ; O iniciador configura a primeira execução e abre o navegador padrão.
-Filename: "{app}\estacao-ai.exe"; Parameters: "app"; Description: "Abrir Estação I.A no navegador"; Flags: nowait postinstall skipifsilent runhidden
+Filename: "{app}\estacao-ai.exe"; Parameters: "app"; Description: "Abrir Estação I.A"; Flags: nowait postinstall skipifsilent runhidden
 
 [Code]
 var

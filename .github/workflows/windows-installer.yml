@@ -1,0 +1,112 @@
+name: windows-installer
+
+on:
+  push:
+    tags:
+      - 'estacao-*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag da release para anexar o instalador Windows (ex.: estacao-1.7.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows-installer:
+    name: Build & Publish Windows Installer (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/estacao-') }}
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          $inno = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $inno)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar Inno Setup 6" }
+          }
+
+      - name: Build Windows binary and Inno Setup installer
+        shell: pwsh
+        run: |
+          & ./scripts/package-windows.ps1
+          $setup = Resolve-Path target/packages/Estacao-ai-Setup-win10-11-x64.exe
+          $standalone = Resolve-Path target/packages/Estacao-ai-win10-11-x64.exe
+          Get-Item $setup, $standalone | Format-Table Name, Length
+
+      - name: Smoke test Windows installer
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path target/packages/Estacao-ai-Setup-win10-11-x64.exe
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -WindowStyle Hidden -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Instalador retornou código $($proc.ExitCode)" }
+          $expected = Join-Path $env:LOCALAPPDATA 'Programs\estacao-ai\estacao-ai.exe'
+          if (-not (Test-Path -LiteralPath $expected)) {
+            throw "Executável não encontrado após instalação: $expected"
+          }
+          $ver = & $expected --version
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao executar estacao-ai.exe --version" }
+          Write-Host "Instalador verificado com sucesso: $ver"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: estacao-ai-windows-x64
+          path: |
+            target/packages/Estacao-ai-Setup-win10-11-x64.exe
+            target/packages/Estacao-ai-win10-11-x64.exe
+
+      - name: Attach Windows installer to GitHub Release & update SHA256SUMS.txt
+        if: startsWith(github.ref, 'refs/tags/estacao-') || inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { $env:GITHUB_REF_NAME }
+          Write-Host "Publicando artefatos Windows na release: $tag"
+
+          $setup = "target/packages/Estacao-ai-Setup-win10-11-x64.exe"
+          $standalone = "target/packages/Estacao-ai-win10-11-x64.exe"
+          $sumsFile = "target/packages/SHA256SUMS.txt"
+
+          # Baixa SHA256SUMS.txt existente na release (se houver) para preservar o hash do .deb Linux
+          $existing = @()
+          gh release download $tag --pattern "SHA256SUMS.txt" --dir target/packages --clobber 2>$null
+          if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $sumsFile)) {
+            $existing = Get-Content -LiteralPath $sumsFile | Where-Object {
+              $_ -and ($_ -notmatch 'Estacao-ai-Setup-win10-11-x64\.exe') -and ($_ -notmatch 'Estacao-ai-win10-11-x64\.exe')
+            }
+          }
+
+          $hSetup = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash.ToLower()
+          $hStand = (Get-FileHash -Algorithm SHA256 -LiteralPath $standalone).Hash.ToLower()
+          $allLines = @($existing) + @(
+            "$hSetup  Estacao-ai-Setup-win10-11-x64.exe",
+            "$hStand  Estacao-ai-win10-11-x64.exe"
+          )
+          [System.IO.File]::WriteAllLines((Join-Path (Get-Location) $sumsFile), $allLines, (New-Object System.Text.UTF8Encoding($false)))
+          Get-Content -LiteralPath $sumsFile
+
+          gh release upload $tag $setup $standalone $sumsFile --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar artefatos Windows para a release $tag" }

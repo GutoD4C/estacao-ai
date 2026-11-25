@@ -6,7 +6,7 @@
 
 A Estação reúne suas ferramentas de IA em um **aplicativo desktop local** (janela própria, sem depender de abas do navegador) rodando diretamente com as ferramentas instaladas no seu computador (como **Claude Code**, **Codex CLI**, **Gemini CLI**, **Ollama** e agentes customizados) na **versão 1.7.0**. Use uma sala de chat para conversar com os agentes, entre no Chalé 3D para acompanhar o debate ou abra um projeto para distribuir tarefas e consultar sua memória.
 
-**Release mais recente · 1.7.0**  [Baixar para Debian/Ubuntu (.deb)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/estacao-ai_1.7.0_amd64.deb)  ·  [Notas e arquivos da release](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.0)
+**Release mais recente · 1.7.0**  [Baixar para Windows (.exe)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/Estacao-ai-Setup-win10-11-x64.exe)  ·  [Baixar para Debian/Ubuntu (.deb)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/estacao-ai_1.7.0_amd64.deb)  ·  [Notas e arquivos da release](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.0)
 
 ![Agentes reunidos no Chalé 3D da Estação I.A](docs/images/modelo-001/chale.png)
 
@@ -34,7 +34,7 @@ A Estação orquestra suas ferramentas de inteligência artificial em dois ambie
 | Sistema | Instalação | Como abrir |
 | --- | --- | --- |
 | Debian, Ubuntu ou derivados, amd64 | Abra o [pacote .deb 1.7.0](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/estacao-ai_1.7.0_amd64.deb) no instalador de aplicativos ou execute `sudo apt install ./estacao-ai_1.7.0_amd64.deb` na pasta do download. | Use o atalho **Estação-ai** na área de trabalho ou procure o aplicativo no menu. |
-| Windows 10 ou 11, x64 | Consulte os arquivos da [release 1.7.0](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.0) ou gere o instalador `.exe` com `scripts/package-windows.ps1` (Inno Setup 6). | Dê dois cliques em **Estação-ai** na Área de Trabalho ou use o Menu Iniciar. |
+| Windows 10 ou 11, x64 | Baixe e execute o [instalador Windows (.exe) 1.7.0](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/Estacao-ai-Setup-win10-11-x64.exe) (não precisa compilar nem abrir terminal; também há o [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/Estacao-ai-win10-11-x64.exe)). | Dê dois cliques em **Estação-ai** na Área de Trabalho ou use o Menu Iniciar. |
 
 O atalho inicia o serviço local em loopback (`127.0.0.1:49374`, usado apenas pelo aplicativo desktop, MCP e hooks locais) e abre a **janela desktop dedicada da Estação I.A** (atualmente via shell desktop/janela isolada sem barras de navegador, com migração em andamento para uma versão desktop própria e independente sem uso do Tauri v2).
 

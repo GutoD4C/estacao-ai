@@ -141,7 +141,8 @@ fn escolher_asset<'a>(assets: &'a [GithubAsset], os: &str, arch: &str) -> Option
             }),
         ("windows", "x86_64") => assets
             .iter()
-            .find(|a| a.name.ends_with(".exe"))
+            .find(|a| a.name.ends_with(".exe") && a.name.to_ascii_lowercase().contains("setup"))
+            .or_else(|| assets.iter().find(|a| a.name.ends_with(".exe")))
             .or_else(|| {
                 assets
                     .iter()

@@ -10,7 +10,7 @@ Este guia acompanha uma sessão de exemplo, da instalação à primeira tarefa. 
 sudo apt install ./estacao-ai_1.7.0_amd64.deb
 ```
 
-**Windows 10 e 11 x64.** Consulte os arquivos da [release 1.7.0](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.0) ou gere o instalador com `scripts/package-windows.ps1` (Inno Setup 6), execute-o com sua conta habitual e abra **Estação-ai** na Área de Trabalho ou no Menu Iniciar.
+**Windows 10 e 11 x64.** Baixe e execute o [instalador Windows (.exe) 1.7.0](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/Estacao-ai-Setup-win10-11-x64.exe) com sua conta habitual (sem precisar compilar nem usar comandos; também disponível como [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.0/Estacao-ai-win10-11-x64.exe)) e abra **Estação-ai** na Área de Trabalho ou no Menu Iniciar.
 
 O instalador cria o atalho executando `estacao-ai app`. Ele inicia o serviço local em loopback (`127.0.0.1:49374`, usado apenas pela aplicação desktop, MCP e hooks locais) e abre a **janela desktop dedicada da Estação I.A** (atualmente em janela isolada de aplicação, com migração em andamento para uma versão desktop nativa e independente sem uso do Tauri v2). Você também pode acessar diretamente via navegador em [http://127.0.0.1:49374/web/chat](http://127.0.0.1:49374/web/chat).
 
