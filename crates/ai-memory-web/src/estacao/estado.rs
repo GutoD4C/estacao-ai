@@ -390,27 +390,27 @@ pub(super) fn limite_agentes_por_pessoa(p: &Projeto, meu_npub: &str) -> usize {
     }
 }
 
-/// Verifica se o dono do agente está online nesta sala (caso contrário, o agente hiberna `zzz`).
+/// Verifica se o agente está pronto/online nesta sala ou projeto (caso contrário, hiberna `zzz`).
+///
+/// - Em salas/projetos pessoais, todos os agentes estão sempre acordados.
+/// - Em salas/projetos compartilhados, agentes pertencentes ao operador local
+///   (`dono_npub` vazio ou igual ao `npub` do operador atual) estão SEMPRE acordados
+///   e prontos para receber tarefas/mensagens.
+/// - Apenas agentes pertencentes a outra pessoa (`dono_npub != meu_npub`) ficam
+///   adormecidos (`zzz`) enquanto essa pessoa não estiver presente na sala/projeto.
 pub(super) fn agente_online_no_projeto(e: &Estado, p: &Projeto, a: &Agente) -> bool {
     if !p.compartilhado {
         return true;
     }
-    let dono = if a.dono_npub.trim().is_empty() {
-        e.nostr_perfil.npub.trim()
-    } else {
-        a.dono_npub.trim()
-    };
-    if dono.is_empty() {
+    let meu_npub = e.nostr_perfil.npub.trim();
+    let dono = a.dono_npub.trim();
+    if dono.is_empty() || (!meu_npub.is_empty() && dono == meu_npub) {
         return true;
     }
-    // Se há lista de presença ativa registrada para a sala, exige que o dono esteja online nela.
-    if let Some(online) = e.presenca_salas.get(&p.id)
-        && !online.is_empty()
-    {
-        return online.iter().any(|n| n.trim() == dono);
-    }
-    // Sem lista de presença registrada ainda: apenas agentes do operador local autenticado ficam acordados.
-    !e.nostr_perfil.npub.trim().is_empty() && dono == e.nostr_perfil.npub.trim()
+    // Agente de outra pessoa: só acorda quando essa pessoa estiver online na sala/projeto.
+    e.presenca_salas
+        .get(&p.id)
+        .is_some_and(|online| online.iter().any(|n| n.trim() == dono))
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

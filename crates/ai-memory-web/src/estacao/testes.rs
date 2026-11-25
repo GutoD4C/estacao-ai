@@ -351,6 +351,18 @@ fn cotas_por_pessoa_e_hibernacao() {
     assert!(agente_online_no_projeto(&e, &comp2, &meu_ag));
     assert!(!agente_online_no_projeto(&e, &comp2, &amigo_ag));
 
+    // Mesmo se a presença da sala tiver apenas o outro participante ou estiver vazia,
+    // os agentes do operador local (com meu npub ou sem dono_npub) continuam prontos.
+    let meu_sem_dono = ag("a3", "Local Sem Dono", "desenvolvedor");
+    e.presenca_salas.insert("p2".into(), vec![amigo2.into()]);
+    assert!(agente_online_no_projeto(&e, &comp2, &meu_ag));
+    assert!(agente_online_no_projeto(&e, &comp2, &meu_sem_dono));
+    assert!(!agente_online_no_projeto(&e, &comp2, &amigo_ag));
+
+    e.presenca_salas.remove("p2");
+    assert!(agente_online_no_projeto(&e, &comp2, &meu_ag));
+    assert!(!agente_online_no_projeto(&e, &comp2, &amigo_ag));
+
     // Quando o amigo entra online na sala, o agente dele acorda!
     e.presenca_salas
         .insert("p2".into(), vec![meu.into(), amigo1.into()]);

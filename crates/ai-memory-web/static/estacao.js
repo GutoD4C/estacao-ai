@@ -210,13 +210,12 @@ function onlineNaSala(p){
 function agenteHibernando(p,ag){
   if(!p||!p.compartilhado||!ag)return false;
   var dono=String(ag.dono_npub||"").trim();
-  if(!dono)return false;
   var my=meuNpub();
+  // Agentes pertencentes ao operador local (sem dono explícito ou com meu npub) nunca hibernam para mim.
+  if(!dono||(my&&dono===my))return false;
+  // Apenas agentes de outra pessoa hibernam (zzz) quando ela não está presente nesta sala/projeto.
   var pres=(E&&E.presenca_salas&&E.presenca_salas[p.id])||[];
-  if(pres.length){
-    return pres.indexOf(dono)<0;
-  }
-  return dono!==my;
+  return pres.indexOf(dono)<0;
 }
 function registrarPresencaLocal(p,npubsLista){
   if(!p||!p.id||!meuNpub())return;

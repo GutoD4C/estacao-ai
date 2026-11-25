@@ -303,8 +303,16 @@ pub(crate) async fn entrar(
             if perfil.relay_url.is_empty() || perfil.relay_url == "ws://127.0.0.1:8080" {
                 perfil.relay_url = "wss://nostr.mom".into();
             }
+            let contatos_npub: std::collections::HashSet<&str> = e
+                .nostr_contatos
+                .iter()
+                .map(|c| c.npub.trim())
+                .filter(|n| !n.is_empty())
+                .collect();
             for a in &mut e.agentes {
-                if a.dono_npub.is_empty() {
+                let eh_remoto = a.comando.trim() == "echo '(agente remoto Nostr)'"
+                    || contatos_npub.contains(a.dono_npub.trim());
+                if a.dono_npub.is_empty() || !eh_remoto {
                     a.dono_npub.clone_from(&npub);
                 }
             }

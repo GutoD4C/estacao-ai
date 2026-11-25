@@ -8,6 +8,23 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-11-25
+
+### Security
+
+- **Dependências (`zip 9.8.2` + `candle 0.11.1`)**: atualizada toda a árvore do workspace para `zip 9.8.2`, encerrando os 5 CVEs do `zip 8.6` (incluindo o crítico `CVE-2026-115905`).
+- **Blindagem de salas compartilhadas Nostr (`SincronizarSalaCompartilhada`)**: comandos shell vindos de payloads remotos são sempre ignorados (`echo '(agente remoto Nostr)'`), `pasta`/`memoria` externos são zerados, agentes do operador local nunca são sobrescritos e `testar_agente` recusa executar agentes remotos.
+- **Hardening do auto-atualizador**: `POST /estacao/api/atualizacao/aplicar` agora exige cabeçalho CSRF (`x-estacao-ui: 1`), validação `Origin == Host`, permissão de administrador, verificação **obrigatória** (*fail-closed*) de `SHA256SUMS.txt` e sanitização estrita de nome de arquivo contra *path traversal*.
+- **Limites na busca do YouTube**: aplicados teto de 200 caracteres na query e limite de 4 MiB na leitura do HTML de resposta.
+
+### Fixed
+
+- **Hibernação (`zzz`) de agentes em chats e projetos compartilhados**: corrigido o cálculo de presença (backend e frontend) para que os agentes pertencentes ao operador local estejam **sempre acordados e prontos para receber tarefas/mensagens**, mesmo quando a lista de presença ainda não inclui seu `npub` ou após troca de conta Nostr; apenas agentes pertencentes a outra pessoa ficam adormecidos quando ela está offline.
+
+### Added
+
+- **Instalador Windows pronto (.exe)**: workflow automatizado `windows-installer.yml` com Inno Setup 6 gerando e publicando `Estacao-ai-Setup-win10-11-x64.exe` e `Estacao-ai-win10-11-x64.exe` diretamente nas releases.
+
 ## [1.7.0] — 2026-11-25
 
 ### Added
