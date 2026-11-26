@@ -387,7 +387,16 @@ function carregar(){
         return api({tipo:"auto_configurar",grupo:"projetos"})
           .catch(function(){})
           .then(function(){return api({tipo:"auto_configurar",grupo:"chat"});})
-          .catch(function(){});
+          .catch(function(){})
+          .then(function(){
+            if(!ultimaCarga){
+              return Promise.all([carregarContexto(),carregarConsumo()]).then(function(){
+                if(minha!==seqCarga)return;
+                ultimaCarga=t+JSON.stringify(CONTEXTO)+JSON.stringify(CONSUMO);
+                desenhar();
+              });
+            }
+          });
       }
       return Promise.all([carregarContexto(),carregarConsumo()]).then(function(){
         if(minha!==seqCarga)return;
@@ -482,10 +491,29 @@ function tentarFecharModal(){
   }
   fecharModal();
 }
+function trapFocusDialog(ev,container){
+  if(ev.key!=="Tab"||!container)return;
+  var focaveis=Array.from(container.querySelectorAll("button:not([disabled]),[href],input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])"));
+  if(!focaveis.length)return;
+  var primeiro=focaveis[0],ultimo=focaveis[focaveis.length-1];
+  if(ev.shiftKey&&document.activeElement===primeiro){ev.preventDefault();ultimo.focus();}
+  else if(!ev.shiftKey&&document.activeElement===ultimo){ev.preventDefault();primeiro.focus();}
+}
 document.addEventListener("keydown",function(ev){
-  if(ev.key==="Escape"&&confirmDialog){ev.preventDefault();confirmDialog.resolve(false);return;}
-  if(ev.key==="Enter"&&confirmDialog){ev.preventDefault();confirmDialog.resolve(true);return;}
-  if(ev.key==="Escape"&&modal){ev.preventDefault();tentarFecharModal();}
+  if(confirmDialog){
+    if(ev.key==="Escape"){ev.preventDefault();confirmDialog.resolve(false);return;}
+    if(ev.key==="Enter"){
+      var emBotao=document.activeElement&&document.activeElement.tagName==="BUTTON";
+      if(!emBotao){ev.preventDefault();confirmDialog.resolve(true);}
+      return;
+    }
+    trapFocusDialog(ev,document.querySelector(".confirm-card"));
+    return;
+  }
+  if(modal){
+    if(ev.key==="Escape"){ev.preventDefault();tentarFecharModal();return;}
+    trapFocusDialog(ev,modal.el&&modal.el.querySelector(".modal-card"));
+  }
 });
 
 function botaoContaNostr(){
@@ -3195,7 +3223,7 @@ function barraUso(rot,j,forn){
   var temPct=j.usado!=null||j.livre!=null;
   var usado=temPct?(j.usado!=null?Math.round(j.usado):Math.max(0,100-Math.round(j.livre))):null;
   var livre=temPct?(j.livre!=null?Math.round(j.livre):Math.max(0,100-usado)):null;
-  var cls=livre==null?"":(livre<=15?"alto":(livre<=40?"medio":""));
+  var cls=livre==null?"indeterminado":(livre<=15?"alto":(livre<=40?"medio":""));
   var tok=Math.max(j.tokens||0,j.tokens_estacao||0);
   var esq=temPct
     ?("Usado: "+usado+"%"+(tok>0?" ("+tok.toLocaleString("pt-BR")+" tokens)":""))
@@ -3209,7 +3237,7 @@ function barraUso(rot,j,forn){
       j.renova?h("span",{class:"muted est-text-11px",texto:"Reinicia em "+faltaPara(j.renova)}):null
     ]),
     h("div",{class:"lim-sub"},[h("span",{texto:esq}),h("span",{texto:dir})]),
-    h("div",{class:"barra"},[h("span",{class:cls,style:"width:"+(livre==null?0:livre)+"%"})])
+    h("div",{class:"barra"},[h("span",{class:cls,style:"width:"+(livre==null?100:livre)+"%"})])
   ]);
 }
 
@@ -3279,7 +3307,11 @@ function telaConsumo(){
   }
 
   if(!CONSUMO.claude_statusline_ativo&&(provs.some(function(p){return p.fornecedor==="claude";})||(CONSUMO.agentes||[]).some(function(a){return a.fornecedor==="claude";}))){
-    var snippet='"statusLine": { "type": "command", "command": "\\"$HOME/Área de trabalho/Projetos/Estacao-ai/scripts/estacao/statusline-limites.sh\\"" }';
+    var isWin=(typeof navigator!=="undefined"&&/Win/i.test(navigator.platform||navigator.userAgent||""));
+    var fallbackCmd=isWin
+      ?'powershell -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\\\\Programs\\\\estacao-ai\\\\scripts\\\\estacao\\\\statusline-limites.ps1"'
+      :'"\\"$HOME/.local/share/estacao-ai/scripts/estacao/statusline-limites.sh\\""';
+    var snippet=CONSUMO.claude_statusline_snippet||('"statusLine": { "type": "command", "command": '+(isWin?JSON.stringify(fallbackCmd):fallbackCmd)+' }');
     raiz.append(h("div",{class:"card est-mt-16px"},[
       h("strong",{texto:"Ativar leitura de limites (5h e semanal) do Claude Code"}),
       h("p",{class:"muted est-m-4px-0-8px",texto:"Adicione esta linha em ~/.claude/settings.json para exibir % usado e % livre do Claude Code:"}),

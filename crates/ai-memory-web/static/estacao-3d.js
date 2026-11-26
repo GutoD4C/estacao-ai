@@ -332,12 +332,15 @@ import { criarClienteNostr, RACAS_CACHORRO, RELAY_PADRAO, requisicao } from "./e
           requisicao("estacao/api/youtube?q=" + encodeURIComponent(qtxt), { credentials: "same-origin" })
             .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t || "Erro " + r.status); }); return r.json(); })
             .then(function (d) {
-              var items = (d && d.itens) || [];
+              var items = (d && (d.results || d.itens)) || [];
               if (!items.length) { ytResults.replaceChildren(el("span", { class: "muted", text: "Nenhum resultado encontrado." })); return; }
               ytResults.replaceChildren.apply(ytResults, items.map(function (it) {
-                return el("button", { type: "button", class: "aa-yt-card", onclick: function () { tocarVideoYoutube(it.id, it.titulo); } }, [
-                  el("strong", { text: it.titulo }),
-                  el("small", { text: (it.canal || "YouTube") + (it.duracao ? " · " + it.duracao : "") })
+                var titulo = it.title || it.titulo || "Vídeo do YouTube";
+                var canal = it.channel || it.canal || "YouTube";
+                var duracao = it.duration || it.duracao || "";
+                return el("button", { type: "button", class: "aa-yt-card", onclick: function () { tocarVideoYoutube(it.id, titulo); } }, [
+                  el("strong", { text: titulo }),
+                  el("small", { text: canal + (duracao ? " · " + duracao : "") })
                 ]);
               }));
             })
@@ -1198,9 +1201,16 @@ import { criarClienteNostr, RACAS_CACHORRO, RELAY_PADRAO, requisicao } from "./e
             msgs.forEach(function (m) {
               var isYou = m.autor === "voce";
               var txt = m.estado === "pensando" ? (m.texto || "Pensando…") : (m.texto || "");
+              var corpoEl;
+              if (m.html && m.texto && m.estado !== "pensando") {
+                corpoEl = el("div", { class: "chalet-chat-body" });
+                corpoEl.innerHTML = m.html;
+              } else {
+                corpoEl = el("span", { text: resumirTexto(txt, 380) });
+              }
               chaletChatFeed.append(el("div", { class: "chalet-chat-msg" + (isYou ? " you" : "") + (m.estado === "pensando" ? " busy" : "") }, [
                 el("strong", { text: autorNome(m.autor) }),
-                el("span", { text: resumirTexto(txt, 380) })
+                corpoEl
               ]));
             });
           }
@@ -1312,7 +1322,20 @@ import { criarClienteNostr, RACAS_CACHORRO, RELAY_PADRAO, requisicao } from "./e
           var txt = cur.bubbleFull || "";
           var pos = Math.floor(cur.bubblePos || 0);
           var typing = pos < txt.length || cur.busy;
-          chaletDlgTextNode.nodeValue = txt.slice(0, pos);
+          if (!typing && cur.lastHtml && cur.bubbleFull === cur.lastText) {
+            if (chaletDlgBody.dataset.htmlKey !== cur.lastMsgId + ":" + cur.lastText.length) {
+              chaletDlgBody.dataset.htmlKey = cur.lastMsgId + ":" + cur.lastText.length;
+              var mdWrap = el("div", { class: "chalet-dlg-md" });
+              mdWrap.innerHTML = cur.lastHtml;
+              chaletDlgBody.replaceChildren(mdWrap, chaletDlgCursor);
+            }
+          } else {
+            if (chaletDlgBody.dataset.htmlKey) {
+              delete chaletDlgBody.dataset.htmlKey;
+              chaletDlgBody.replaceChildren(chaletDlgTextNode, chaletDlgCursor);
+            }
+            chaletDlgTextNode.nodeValue = txt.slice(0, pos);
+          }
           chaletDlgCursor.hidden = !typing;
           if (typing && !dlgUserScrolled) {
             chaletDlgBody.scrollTop = chaletDlgBody.scrollHeight;
@@ -1633,7 +1656,8 @@ import { criarClienteNostr, RACAS_CACHORRO, RELAY_PADRAO, requisicao } from "./e
           } else if (ultMsg && ultMsg.estado === "ok" && ultMsg.texto) {
             var mudou = ultMsg.id !== ag.lastMsgId || ultMsg.texto !== ag.lastText;
             ag.lastMsgId = ultMsg.id;
-            ag.lastText = ultMsg.texto;
+            ag.lastText = String(ultMsg.texto).trim();
+            ag.lastHtml = ultMsg.html || "";
             if (mudou && !firstSync) {
               var txtCompleto = String(ultMsg.texto).trim();
               var activeSpk = currentPulpitSpeaker();
