@@ -4,7 +4,7 @@ data-base: 25/11/2026
 ---
 # Visão geral
 
-A Estação-ai (versão **1.7.1**) é uma central local para coordenar vários agentes de IA (Claude Code, Codex, Antigravity, Gemini, Ollama e outros) em salas de chat 2D/3D e projetos de software com memória de longo prazo. O painel (`/web/`) utiliza autenticação descentralizada via **Nostr** (chave privada `nsec` / hex, QR Code NIP-46 ou extensão NIP-07) com sessão persistente.
+A Estação-ai (versão **1.7.2**) é uma central local para coordenar vários agentes de IA (Claude Code, Codex, Antigravity, Gemini, Ollama e outros) em salas de chat 2D/3D e projetos de software com memória de longo prazo. O painel (`/web/`) utiliza autenticação descentralizada via **Nostr** (chave privada `nsec` / hex, QR Code NIP-46 ou extensão NIP-07) com sessão persistente.
 
 ```mermaid
 flowchart LR

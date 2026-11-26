@@ -237,7 +237,7 @@ def main() -> int:
     args = parser.parse_args()
     parent = args.artifacts_parent.resolve() if args.artifacts_parent else None
     root = Path(tempfile.mkdtemp(prefix="estacao-ai-codex-plugin-e2e-", dir=parent))
-    box = Sandbox(root, args.ai_memory_bin.resolve(), args.repo_root.resolve())
+    box = Sandbox(root, args.estacao_ai_bin.resolve(), args.repo_root.resolve())
     try:
         (box.project / ".estacao-ai.toml").write_text(
             f'workspace = "{WORKSPACE}"\nproject = "{PROJECT}"\n', encoding="utf-8"

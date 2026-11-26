@@ -9,12 +9,12 @@
     {
       "name": "estacao-ai",
       "description": "Long-term memory across sessions and harnesses.",
-      "version": "1.7.1",
+      "version": "1.7.2",
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/akitaonrails/ai-memory.git",
         "path": "plugins/claude-code",
-        "ref": "v1.7.1"
+        "ref": "v1.7.2"
       }
     }
   ]

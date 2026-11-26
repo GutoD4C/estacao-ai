@@ -8,6 +8,23 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-11-25
+
+### Security
+
+- **Dependências (`libz-sys 1.1.33`, `url 2.5.9`, `rustix 1.1.6`)**: atualizados os lockfiles do workspace e dos companions para encerrar `RUSTSEC-2026-0544` (`libz-sys`), `RUSTSEC-2026-0592` (`url`) e `RUSTSEC-2026-0486` (`rustix`).
+
+### Fixed
+
+- **Smart TV 3D (YouTube)**: alinhada a leitura da busca no Chalé 3D ao formato `{ results, title, channel, duration }` retornado por `/estacao/api/youtube`.
+- **Primeiro carregamento sem CLI & Statusline multiplataforma**: corrigido travamento em `"Carregando…"` quando `auto_configurar` encontra zero ferramentas ativas, removido caminho pessoal fixo da aba Consumo e adicionado `scripts/estacao/statusline-limites.ps1` para Windows.
+- **Orquestração, parser de avaliações e instalador Windows**: corrigida colisão de prefixo em menções `@Nome`, parsing balanceado de `AVALIACAO_JSON:` ignorando colchetes posteriores e fechamento seguro de `estacao-ai.exe` via `CloseApplications` no Inno Setup.
+- **CI, companions, plugins, CodeQL e Nix**: corrigidos erros de `clippy`/`rustfmt`, imports `estacao_ai_*` nos companions, `Cargo.lock` do `estacao-ai-desktop`, manifests e testes E2E de `plugins/` (`--estacao-ai-bin` e versão `1.7.2`), `upload-sarif` v4.39.4 no CodeQL, `flake.nix` sem hash órfão de `zip-8.6.0` e `scripts/check-dashboard-core-mutations.py`.
+
+### Changed
+
+- **Design System e acessibilidade**: *focus trap* e confirmação segura em modais/diálogos, barra indeterminada quando provedor não informa `%` livre, cores completas por provedor em `.dc-msg-name` e renderização de Markdown no feed e diálogo do Chalé 3D.
+
 ## [1.7.1] — 2026-11-25
 
 ### Security

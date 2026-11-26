@@ -273,7 +273,7 @@ def main() -> int:
     parser.add_argument("--artifacts-parent", type=Path, help="keep the sandbox under this directory")
     args = parser.parse_args()
 
-    binary = args.ai_memory_bin.resolve()
+    binary = args.estacao_ai_bin.resolve()
     plugin_dir = args.plugin_dir.resolve()
     parent = args.artifacts_parent.resolve() if args.artifacts_parent else None
     root = Path(tempfile.mkdtemp(prefix="estacao-ai-plugin-e2e-", dir=parent))
