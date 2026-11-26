@@ -177,5 +177,5 @@ Write-Host "  Em qualquer terminal futuro, basta digitar: estacao" -ForegroundCo
 Write-Host ""
 
 if (-not $NaoAbrirNavegador) {
-    Start-Process $UrlChat
+    & $InstalledExe --data-dir $DataDir --config $ConfigFile app
 }

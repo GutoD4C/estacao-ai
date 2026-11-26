@@ -14,6 +14,7 @@
 //!    default "Conversas" room) if none exist yet, and opens the standalone
 //!    desktop application window.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -68,6 +69,22 @@ pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
         }
         println!("Estação-ai ativa em: {app_url}");
         return Ok(());
+    }
+
+    if !args.no_open && start_windows_service_host(&exe_path, &config.data_dir) {
+        for _ in 0..60 {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            if client
+                .get(&health_url)
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success())
+            {
+                open_desktop_window(&app_url, &config.data_dir);
+                println!("Estação-ai ativa em: {app_url}");
+                return Ok(());
+            }
+        }
     }
 
     let poll_client = client.clone();
@@ -291,32 +308,40 @@ fn launch_native_desktop_shell() -> bool {
     false
 }
 
+fn start_windows_service_host(exe_path: &Path, data_dir: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut cmd = Command::new(exe_path);
+        cmd.arg("--data-dir").arg(data_dir);
+        let config_file = data_dir.join("config.toml");
+        if config_file.is_file() {
+            cmd.arg("--config").arg(&config_file);
+        }
+        cmd.arg("service-host")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW);
+        cmd.spawn().is_ok()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (exe_path, data_dir);
+        false
+    }
+}
+
 fn launch_isolated_app_window(url: &str, data_dir: &Path) -> bool {
     let profile_dir = data_dir.join("desktop-app-profile");
     let _ = std::fs::create_dir_all(&profile_dir);
     let app_arg = format!("--app={url}");
     let profile_arg = format!("--user-data-dir={}", profile_dir.display());
 
-    #[cfg(target_os = "linux")]
-    let browsers = [
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-        "brave-browser",
-        "microsoft-edge",
-    ];
-    #[cfg(windows)]
-    let browsers = ["msedge.exe", "chrome.exe", "brave.exe"];
-    #[cfg(target_os = "macos")]
-    let browsers = [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ];
-
+    let browsers = isolated_app_browser_candidates(&profile_dir);
     for bin in browsers {
-        let mut cmd = Command::new(bin);
+        let mut cmd = Command::new(&bin);
         cmd.args([
             app_arg.as_str(),
             profile_arg.as_str(),
@@ -338,4 +363,127 @@ fn launch_isolated_app_window(url: &str, data_dir: &Path) -> bool {
         }
     }
     false
+}
+
+fn isolated_app_browser_candidates(profile_dir: &Path) -> Vec<OsString> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = profile_dir;
+        [
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "brave-browser",
+            "microsoft-edge",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect()
+    }
+    #[cfg(windows)]
+    {
+        let env_roots = [
+            std::env::var_os("ProgramFiles(x86)").map(PathBuf::from),
+            std::env::var_os("ProgramFiles").map(PathBuf::from),
+            std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        ];
+        windows_chromium_candidates(profile_dir, &env_roots)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = profile_dir;
+        [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect()
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_chromium_candidates(profile_dir: &Path, roots: &[Option<PathBuf>]) -> Vec<OsString> {
+    let mut out: Vec<OsString> = Vec::new();
+    let mut push_unique = |cand: OsString| {
+        if !out.contains(&cand) {
+            out.push(cand);
+        }
+    };
+
+    // Preserve the Chromium binary that already owns `desktop-app-profile` when present.
+    if let Ok(raw) = std::fs::read_to_string(profile_dir.join("Last Browser")) {
+        let recorded = raw.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+        if !recorded.is_empty() {
+            let path = PathBuf::from(recorded);
+            if path.is_file() {
+                push_unique(path.into_os_string());
+            }
+        }
+    }
+
+    let relative_bins = [
+        r"Microsoft\Edge\Application\msedge.exe",
+        r"Google\Chrome\Application\chrome.exe",
+        r"BraveSoftware\Brave-Browser\Application\brave.exe",
+    ];
+    for rel in relative_bins {
+        for root in roots.iter().flatten() {
+            let cand = root.join(rel);
+            if cand.is_file() {
+                push_unique(cand.into_os_string());
+            }
+        }
+    }
+
+    for bare in ["msedge.exe", "chrome.exe", "brave.exe"] {
+        push_unique(OsString::from(bare));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::windows_chromium_candidates;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    #[test]
+    fn windows_candidates_discover_full_paths_and_last_browser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pf86 = tmp.path().join("pf86");
+        let pf = tmp.path().join("pf");
+        let profile = tmp.path().join("desktop-app-profile");
+        std::fs::create_dir_all(&profile).unwrap();
+
+        let edge = pf86.join(r"Microsoft\Edge\Application\msedge.exe");
+        let chrome = pf.join(r"Google\Chrome\Application\chrome.exe");
+        std::fs::create_dir_all(edge.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(chrome.parent().unwrap()).unwrap();
+        std::fs::write(&edge, b"").unwrap();
+        std::fs::write(&chrome, b"").unwrap();
+
+        std::fs::write(
+            profile.join("Last Browser"),
+            format!("{}\0", chrome.display()),
+        )
+        .unwrap();
+
+        let found = windows_chromium_candidates(&profile, &[Some(pf86), Some(pf), None]);
+        assert_eq!(found[0], chrome.as_os_str());
+        assert_eq!(found[1], edge.as_os_str());
+        assert_eq!(
+            found
+                .iter()
+                .filter(|entry| *entry == chrome.as_os_str())
+                .count(),
+            1
+        );
+        assert!(found.contains(&OsString::from("msedge.exe")));
+        assert!(found.contains(&OsString::from("chrome.exe")));
+        assert!(found.contains(&OsString::from("brave.exe")));
+        assert!(!found.contains(&PathBuf::from("nonexistent.exe").into_os_string()));
+    }
 }
