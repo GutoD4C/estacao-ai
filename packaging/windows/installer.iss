@@ -2,7 +2,7 @@
 ; Instala e configura tudo automaticamente (MCP, hooks, skills, serviço de login,
 ; modelos locais e atalhos na Área de Trabalho / Menu Iniciar) sem precisar de comandos.
 #ifndef MyAppVersion
-  #define MyAppVersion "1.7.3"
+  #define MyAppVersion "1.7.4"
 #endif
 
 [Setup]
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.10240
-CloseApplications=yes
+CloseApplications=force
 CloseApplicationsFilter=estacao-ai.exe
 OutputDir=..\..\target\packages
 OutputBaseFilename=Estacao-ai-Setup-win10-11-x64
@@ -59,7 +59,9 @@ begin
   Result := '';
   Pasta := ExpandConstant('{localappdata}\estacao-ai\');
   Estado := Pasta + 'service-host.json';
-  if FileExists(ExpandConstant('{app}\estacao-ai.exe')) and FileExists(Estado) then
+  if FileExists(Estado) then
+  begin
+    ReiniciarSupervisor := True;
     if SaveStringToFile(Pasta + 'service-host.stop', 'stop', False) then
       for I := 1 to 100 do begin
         if not FileExists(Estado) then begin
@@ -68,13 +70,15 @@ begin
         end;
         Sleep(100);
       end;
+  end;
+  // Restart Manager closes processes using this install's files before replacement.
 end;
 
 procedure RestaurarSupervisor();
 var
   Codigo: Integer;
 begin
-  if ReiniciarSupervisor then
+  if ReiniciarSupervisor and WizardSilent() then
     if Exec(ExpandConstant('{app}\estacao-ai.exe'), 'service-host', '', SW_HIDE, ewNoWait, Codigo) then
       ReiniciarSupervisor := False;
 end;

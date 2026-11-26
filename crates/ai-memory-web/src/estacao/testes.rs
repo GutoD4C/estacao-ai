@@ -1111,7 +1111,12 @@ async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
         workspace_id: ws_id,
         project_id: p_beta,
         path: PagePath::new("_rules/padrao.md").unwrap(),
-        frontmatter: serde_json::json!({ "kind": "rule" }),
+        frontmatter: serde_json::json!({
+            "kind": "rule",
+            "entities": ["Rust"],
+            "relations": {"fixes": ["default/alpha:decisions/arquitetura.md"]},
+            "abstract": "Aprendizado Beta"
+        }),
         body: "Regra Beta original.".into(),
         tier: Tier::Procedural,
         pinned: false,
@@ -1230,6 +1235,92 @@ async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
     assert_eq!(pacote["formato"], "estacao-ai-memoria-v1");
     assert_eq!(pacote["projetos"].as_array().unwrap().len(), 3);
 
+    // A second, empty data directory models another computer. The canonical
+    // metadata must rebuild the entity index and cross-project knowledge graph.
+    let destino = tempfile::tempdir().unwrap();
+    let store_destino = Store::open(destino.path()).unwrap();
+    let wiki_destino = Wiki::new(destino.path(), store_destino.writer.clone()).unwrap();
+    let state_destino = Arc::new(crate::WebState::new(
+        store_destino.reader.clone(),
+        wiki_destino,
+    ));
+    let app_destino = crate::localization::apply(
+        axum::Router::new()
+            .route(
+                "/importar",
+                axum::routing::post(super::memoria::api_importar_memorias),
+            )
+            .with_state(state_destino),
+    );
+    let mut transferencia = pacote.clone();
+    transferencia["projetos"].as_array_mut().unwrap().reverse();
+    let importado = app_destino
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/importar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(
+                    serde_json::json!({"pacote": transferencia}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(importado.status(), StatusCode::OK);
+    store_destino
+        .reader
+        .with_conn(|conn| {
+            let entidades: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM entities WHERE name = 'rust'",
+                [],
+                |r| r.get(0),
+            )?;
+            let relacoes: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM links WHERE link_type='fixes' AND to_page_id IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )?;
+            let paginas: i64 =
+                conn.query_row("SELECT COUNT(*) FROM pages WHERE is_latest=1", [], |r| {
+                    r.get(0)
+                })?;
+            assert_eq!((entidades, relacoes, paginas), (1, 1, 3));
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    // An invalid second page cannot leave the first page partially imported.
+    let falha = app.clone().oneshot(
+        Request::builder().method("POST").uri("/estacao/api/memorias/importar")
+            .header("content-type", "application/json").header("x-estacao-ui", "1")
+            .body(Body::from(serde_json::json!({
+                "pacote": {
+                    "versao": 1, "formato": "estacao-ai-memoria-v1",
+                    "projetos": [{"escopo": "default/alpha", "paginas": [
+                        {"path": "notes/nao-gravar.md", "body": "Não deve ficar parcialmente salvo."},
+                        {"path": "notes/invalida.md", "frontmatter": {"entities": "invalido"}}
+                    ]}]
+                }
+            }).to_string())).unwrap(),
+    ).await.unwrap();
+    assert_eq!(falha.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    store
+        .reader
+        .with_conn(|conn| {
+            let gravadas: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pages WHERE path='notes/nao-gravar.md'",
+                [],
+                |r| r.get(0),
+            )?;
+            assert_eq!(gravadas, 0);
+            Ok(())
+        })
+        .await
+        .unwrap();
+
     // 4. Excluir recusa global e remove projeto + desvincula Projeto Beta
     let err_global = super::memoria::excluir_memoria(
         &state,
@@ -1323,6 +1414,7 @@ async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
         "modo": "substituir"
     });
     let resp_sub_global = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1335,4 +1427,82 @@ async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
         .await
         .unwrap();
     assert_eq!(resp_sub_global.status(), StatusCode::BAD_REQUEST);
+}
+
+mod slow_memoria {
+    #[tokio::test]
+    async fn exportacao_com_mais_de_dez_mil_paginas_nao_trunca() {
+        use ai_memory_core::{PagePath, Tier};
+        use ai_memory_store::Store;
+        use ai_memory_wiki::Wiki;
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode},
+        };
+        use std::sync::Arc;
+        use tower::ServiceExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open(tmp.path()).unwrap();
+        let wiki = Wiki::new(tmp.path(), store.writer.clone()).unwrap();
+        let ws_id = store
+            .writer
+            .get_or_create_workspace("default")
+            .await
+            .unwrap();
+        let p_alpha = store
+            .writer
+            .get_or_create_project(ws_id, "alpha", None)
+            .await
+            .unwrap();
+        let state = Arc::new(crate::WebState::new(store.reader.clone(), wiki));
+        let app = crate::localization::apply(
+            axum::Router::new()
+                .route(
+                    "/estacao/api/memorias/exportar",
+                    axum::routing::post(crate::estacao::memoria::api_exportar_memorias),
+                )
+                .with_state(state),
+        );
+        // More than the previous export ceiling must round-trip without truncation.
+        let paginas = (0..10_001)
+            .map(|n| ai_memory_core::NewPage {
+                workspace_id: ws_id,
+                project_id: p_alpha,
+                path: PagePath::new(format!("notes/aprendizado-{n}.md")).unwrap(),
+                title: format!("Aprendizado {n}"),
+                body: "Conhecimento preservado.".into(),
+                tier: Tier::Semantic,
+                frontmatter_json: serde_json::Value::Null,
+                pinned: false,
+                links: Vec::new(),
+                author_id: None,
+                expires_at: None,
+                entities: Vec::new(),
+                evidence: Vec::new(),
+            })
+            .collect();
+        store.writer.upsert_pages_batch(paginas).await.unwrap();
+        let exportacao = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/estacao/api/memorias/exportar")
+                    .header("content-type", "application/json")
+                    .header("x-estacao-ui", "1")
+                    .body(Body::from(r#"{"escopos":["default/alpha"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(exportacao.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(exportacao.into_body(), 16 * 1024 * 1024)
+            .await
+            .unwrap();
+        let completo: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            completo["projetos"][0]["paginas"].as_array().unwrap().len(),
+            10_001
+        );
+    }
 }

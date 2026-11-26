@@ -4,13 +4,20 @@
 >
 > A Estação I.A foi construída a partir do [ai-memory](https://github.com/akitaonrails/ai-memory), criado por **Fabio Akita**. A ferramenta fornece a memória persistente usada pelos agentes da Estação.
 
-A Estação I.A reúne suas ferramentas de inteligência artificial em um **aplicativo desktop local** (janela própria, sem depender de abas do navegador) rodando diretamente com as CLIs instaladas no seu computador (como **Claude Code**, **Codex CLI**, **Gemini CLI**, **Antigravity**, **OpenCode**, **Pi**, **Ollama** e agentes customizados) na **versão 1.7.3**.
+A Estação I.A reúne suas ferramentas de inteligência artificial em um **aplicativo desktop local** (janela própria, sem depender de abas do navegador) rodando diretamente com as CLIs instaladas no seu computador (como **Claude Code**, **Codex CLI**, **Gemini CLI**, **Antigravity**, **OpenCode**, **Pi**, **Ollama** e agentes customizados) na **versão 1.7.4 (em preparação)**.
 
 **Release mais recente · 1.7.3**  [Baixar para Windows (.exe)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/Estacao-ai-Setup-win10-11-x64.exe)  ·  [Baixar para Debian/Ubuntu (.deb)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/estacao-ai_1.7.3_amd64.deb)  ·  [Notas e arquivos da release](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.3)
 
 ![Agentes reunidos no Chalé 3D da Estação I.A](docs/images/modelo-001/chale.png)
 
 ## Novas versões
+
+### v1.7.4 (em preparação)
+
+- Login Nostr lembrado por 30 dias, com restauração ao reabrir o aplicativo e prazo preservado após reiniciar.
+- Ícone na bandeja do Windows para reabrir a janela ou encerrar o serviço e as janelas do aplicativo.
+- Fechamento da versão em execução antes de substituir os arquivos durante uma atualização.
+- Transferência do conhecimento entre computadores: páginas, regras, aprendizados, entidades e relações do grafo, sem o antigo corte de 10.000 páginas por projeto.
 
 > Esta seção destaca, em ordem da mais recente para as anteriores, o que foi adicionado ou corrigido em cada lançamento da Estação I.A. O histórico completo de mudanças técnicas fica em [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -38,6 +45,8 @@ A Estação I.A reúne suas ferramentas de inteligência artificial em um **apli
 
 O atalho inicia o serviço local em loopback (`127.0.0.1:49374`, usado apenas pelo aplicativo desktop, MCP e hooks locais) e abre a **janela desktop dedicada da Estação I.A**.
 
+No Windows, fechar a janela mantém o serviço na bandeja, ao lado do relógio. Clique no ícone para abrir novamente ou use **Fechar Estação I.A de vez** no menu do ícone para encerrar o aplicativo.
+
 ### Atualização automática pelo GitHub
 
 Sempre que uma nova release é publicada em `GutoD4C/estacao-ai`, a Estação I.A exibe um aviso no topo da janela com o botão **Atualizar agora**. Ao confirmar, o aplicativo baixa o pacote oficial direto do GitHub, verifica o `SHA256SUMS.txt`, aplica a atualização e reinicia automaticamente. Também é possível atualizar pelo terminal com `estacao-ai upgrade`.
@@ -60,6 +69,8 @@ Sempre que uma nova release é publicada em `GutoD4C/estacao-ai`, a Estação I.
 **Para que serve:** evita que os agentes esqueçam decisões de arquitetura, regras do time, erros já resolvidos (*gotchas*) e histórico de sessões entre execuções. Cada repositório ganha um escopo próprio no formato `workspace/projeto` (com páginas Markdown indexadas em SQLite e busca híbrida), além da memória global compartilhada `default/_global`.
 
 **Como utilizar no dia a dia:**
+
+O arquivo de memória leva o conhecimento consolidado: texto completo, regras, decisões, aprendizados, entidades, relações e links entre páginas. Ao importar no outro computador, a Estação reconstrói os índices e o grafo a partir desse conteúdo. Exporte juntos os projetos ligados entre si e inclua a memória global para levar também as preferências compartilhadas. Os registros brutos das sessões e as credenciais dos provedores ficam fora desse arquivo; para copiar toda a instalação, use `estacao-ai backup` e `restore`.
 
 1. **Ativar uma memória detectada:** quando você trabalha em uma pasta via hooks ou CLI, ela aparece em **Projetos** → **Projetos detectados na memória**. Clique em **Ativar e abrir →** (ou **Escolher modelos**) para criar um projeto 2D ligado àquela memória.
 2. **Fixar o escopo no repositório (`.estacao-ai.toml`):** abra o projeto ou execute `estacao-ai project init` na raiz do repositório para gravar `.estacao-ai.toml` (`workspace = "..."` e `project = "..."`). Assim, subpastas e *worktrees* nunca criam memórias duplicadas.

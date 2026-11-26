@@ -17,6 +17,8 @@ use crate::recall::Recall;
 #[derive(Clone)]
 pub struct WebState {
     pub(crate) station: Arc<std::sync::OnceLock<Arc<crate::estacao::estado::Estacao>>>,
+    /// Optional shutdown notifier wired by `serve` so self-updates can stop cleanly.
+    pub(crate) shutdown: Arc<std::sync::OnceLock<Arc<tokio::sync::Notify>>>,
     /// Safe effective startup configuration; absent for unwired embedders.
     pub runtime: Option<crate::features::RuntimeFeatures>,
     /// Read-only SQLite pool — drives FTS5 search, page metadata,
@@ -45,6 +47,7 @@ impl WebState {
     pub fn new(reader: ReaderPool, wiki: Wiki) -> Self {
         Self {
             station: Default::default(),
+            shutdown: Default::default(),
             runtime: None,
             reader,
             wiki,
@@ -52,6 +55,18 @@ impl WebState {
             trusted_proxy_identity: false,
             recall: Recall::default(),
             health: None,
+        }
+    }
+
+    /// Attach a shutdown notifier invoked when the desktop UI triggers a self-update exit.
+    pub fn attach_shutdown(&self, notify: Arc<tokio::sync::Notify>) {
+        let _ = self.shutdown.set(notify);
+    }
+
+    /// Signal the hosting HTTP server to drain and exit cleanly.
+    pub(crate) fn request_shutdown(&self) {
+        if let Some(notify) = self.shutdown.get() {
+            notify.notify_one();
         }
     }
 

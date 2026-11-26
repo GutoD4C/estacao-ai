@@ -149,6 +149,49 @@ fn raiz_cookie(uri: &axum::http::Uri) -> &str {
         .trim_end_matches('/')
 }
 
+fn consumidor_vinculo_se(state: &WebState, headers: &HeaderMap, condicao: bool) -> bool {
+    if !condicao {
+        return false;
+    }
+    consumir_vinculo(state, headers)
+}
+
+fn formatar_expires_http(timestamp_secs: i64) -> Option<String> {
+    let ts = jiff::Timestamp::from_second(timestamp_secs).ok()?;
+    let dt = ts.to_zoned(jiff::tz::TimeZone::UTC);
+    let wday = match dt.weekday() {
+        jiff::civil::Weekday::Monday => "Mon",
+        jiff::civil::Weekday::Tuesday => "Tue",
+        jiff::civil::Weekday::Wednesday => "Wed",
+        jiff::civil::Weekday::Thursday => "Thu",
+        jiff::civil::Weekday::Friday => "Fri",
+        jiff::civil::Weekday::Saturday => "Sat",
+        jiff::civil::Weekday::Sunday => "Sun",
+    };
+    let month = match dt.month() {
+        1 => "Jan",
+        2 => "Feb",
+        3 => "Mar",
+        4 => "Apr",
+        5 => "May",
+        6 => "Jun",
+        7 => "Jul",
+        8 => "Aug",
+        9 => "Sep",
+        10 => "Oct",
+        11 => "Nov",
+        _ => "Dec",
+    };
+    Some(format!(
+        "{wday}, {:02} {month} {:04} {:02}:{:02}:{:02} GMT",
+        dt.day(),
+        dt.year(),
+        dt.hour(),
+        dt.minute(),
+        dt.second()
+    ))
+}
+
 fn formatar_cookie_caminho(
     nome: &str,
     headers: &HeaderMap,
@@ -157,7 +200,16 @@ fn formatar_cookie_caminho(
     caminho: &str,
 ) -> String {
     let seguro = if http_local(headers) { "" } else { "; Secure" };
-    format!("{nome}={token}; Path={caminho}; HttpOnly; SameSite=Strict; Max-Age={idade}{seguro}")
+    let expires = if idade > 0 {
+        formatar_expires_http(agora().saturating_add(idade))
+            .map(|gmt| format!("; Expires={gmt}"))
+            .unwrap_or_default()
+    } else {
+        "; Expires=Thu, 01 Jan 1970 00:00:00 GMT".to_owned()
+    };
+    format!(
+        "{nome}={token}; Path={caminho}; HttpOnly; SameSite=Strict; Max-Age={idade}{expires}{seguro}"
+    )
 }
 
 fn formatar_cookie(
@@ -219,10 +271,31 @@ fn adicionar_set_cookie(mut resp: Response, cookie: String) -> Response {
 fn token_requisicao(headers: &HeaderMap) -> Option<&str> {
     let token = headers.get(CABECALHO)?.to_str().ok()?;
     if token == "dispositivo" {
-        cookie(headers, COOKIE_NOSTR).or_else(|| cookie(headers, COOKIE))
+        cookie(headers, COOKIE_NOSTR)
+            .or_else(|| cookie(headers, COOKIE))
+            .filter(|t| !t.trim().is_empty())
+    } else if token.trim().is_empty() {
+        None
     } else {
         Some(token)
     }
+}
+
+fn hash_sessao_ativo(
+    e: &super::estado::Estado,
+    token: &str,
+    headers: &HeaderMap,
+    device: bool,
+) -> Option<(String, i64)> {
+    let direto = hash_dispositivo(token);
+    if let Some(&vence) = e.dispositivos_nostr.get(&direto) {
+        return Some((direto, vence));
+    }
+    let legado = hash_token(token, headers, device);
+    e.dispositivos_nostr
+        .get(&legado)
+        .copied()
+        .map(|vence| (legado, vence))
 }
 
 pub(crate) async fn desafio() -> Response {
@@ -362,14 +435,9 @@ pub(crate) async fn exigir_sessao(
         .and_then(|t| {
             let headers = req.headers();
             let device = headers[CABECALHO] == "dispositivo";
-            let hash = if device && cookie(headers, COOKIE_NOSTR).is_some() {
-                hash_dispositivo(t)
-            } else {
-                hash_token(t, headers, device)
-            };
-            e.dispositivos_nostr.get(&hash)
+            hash_sessao_ativo(&e, t, headers, device).map(|(_, vence)| vence)
         })
-        .is_some_and(|vence| *vence > agora());
+        .is_some_and(|vence| vence > agora());
     let conta_correta = req
         .headers()
         .get("x-estacao-conta")
@@ -434,6 +502,7 @@ pub(crate) async fn sessao(
     State(state): State<Arc<WebState>>,
     headers: HeaderMap,
 ) -> Response {
+    let _leitura = TROCA_CONTA.read().await;
     let est = estacao(&state);
     let dispositivo = headers.get(CABECALHO).is_some_and(|h| h == "dispositivo");
     if dispositivo
@@ -481,7 +550,8 @@ pub(crate) async fn sessao(
             }
         };
     }
-    if dispositivo && let Some(token) = cookie(&headers, COOKIE_NOSTR) {
+    let token_direto = cookie(&headers, COOKIE_NOSTR);
+    if dispositivo && let Some(token) = token_direto {
         let hash = hash_dispositivo(token);
         let agora_ts = agora();
         let encontrado = {
@@ -492,9 +562,9 @@ pub(crate) async fn sessao(
                 .copied()
                 .map(|vence| (estado.nostr_perfil.pubkey_hex.clone(), vence))
         };
-        return match encontrado {
+        match encontrado {
             Some((pubkey, vence)) if vence > agora_ts => {
-                sessao_dispositivo(&headers, &uri, token, pubkey, vence)
+                return sessao_dispositivo(&headers, &uri, token, pubkey, vence);
             }
             Some(_) => {
                 let _ = est
@@ -508,12 +578,41 @@ pub(crate) async fn sessao(
                         Ok(())
                     })
                     .await;
-                StatusCode::UNAUTHORIZED.into_response()
             }
-            None => StatusCode::UNAUTHORIZED.into_response(),
-        };
+            None => {}
+        }
     }
     if dispositivo {
+        let agora_ts = agora();
+        let tem_sessao_ativa = {
+            let estado = est.estado.lock().await;
+            estado.nostr_perfil.autenticado
+                && !estado.nostr_perfil.pubkey_hex.is_empty()
+                && estado.dispositivos_nostr.values().any(|&v| v > agora_ts)
+        };
+        if consumidor_vinculo_se(&state, &headers, tem_sessao_ativa) {
+            let novo_token = Uuid::new_v4().to_string();
+            let restaurado = est
+                .mudar(|e| {
+                    let ts = agora();
+                    e.dispositivos_nostr.retain(|_, v| *v > ts);
+                    let max_vence = e.dispositivos_nostr.values().copied().max();
+                    if let Some(vence) = max_vence
+                        && e.nostr_perfil.autenticado
+                        && !e.nostr_perfil.pubkey_hex.is_empty()
+                    {
+                        e.dispositivos_nostr
+                            .insert(hash_dispositivo(&novo_token), vence);
+                        Ok(Some((e.nostr_perfil.pubkey_hex.clone(), vence)))
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .await;
+            if let Ok(Some((pubkey, vence))) = restaurado {
+                return sessao_dispositivo(&headers, &uri, &novo_token, pubkey, vence);
+            }
+        }
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let pubkey = est.estado.lock().await.nostr_perfil.pubkey_hex.clone();
@@ -531,17 +630,20 @@ pub(crate) async fn sair(
     }
     if let Some(token) = token_requisicao(&headers) {
         let device = headers[CABECALHO] == "dispositivo";
-        let hash = if device && cookie(&headers, COOKIE_NOSTR).is_some() {
-            hash_dispositivo(token)
-        } else {
-            hash_token(token, &headers, device)
-        };
+        let hash_legado = hash_token(token, &headers, device);
+        let hash_disp = hash_dispositivo(token);
         if let Err(err) = estacao(&state)
             .mudar(|e| {
-                e.dispositivos_nostr.remove(&hash);
+                e.dispositivos_nostr.remove(&hash_disp);
+                e.dispositivos_nostr.remove(&hash_legado);
                 if let Some(old) = cookie(&headers, COOKIE) {
                     e.dispositivos_nostr
                         .remove(&hash_token(old, &headers, true));
+                }
+                let ts = agora();
+                e.dispositivos_nostr.retain(|_, v| *v > ts);
+                if e.dispositivos_nostr.is_empty() {
+                    e.nostr_perfil.autenticado = false;
                 }
                 Ok(())
             })
@@ -647,14 +749,15 @@ mod tests {
             .map(|v| v.to_str().unwrap())
             .collect();
         assert!(
-            set_cookies
-                .contains(&"estacao_dispositivo=; Path=/web; HttpOnly; SameSite=Strict; Max-Age=0"),
+            set_cookies.iter().any(|c| c.starts_with(
+                "estacao_dispositivo=; Path=/web; HttpOnly; SameSite=Strict; Max-Age=0"
+            )),
             "{set_cookies:?}"
         );
         assert!(
-            set_cookies.contains(
-                &"estacao_dispositivo=; Path=/web/; HttpOnly; SameSite=Strict; Max-Age=0"
-            ),
+            set_cookies.iter().any(|c| c.starts_with(
+                "estacao_dispositivo=; Path=/web/; HttpOnly; SameSite=Strict; Max-Age=0"
+            )),
             "{set_cookies:?}"
         );
         assert!(
@@ -673,16 +776,167 @@ mod tests {
         h.insert(header::HOST, HeaderValue::from_static("127.0.0.1:49374"));
         let uri: Uri = "/web/estacao/api/entrar".parse().unwrap();
         let c = cookie_dispositivo(&h, "tok123", 3600, &uri);
-        assert_eq!(
-            c,
-            "estacao_operador=tok123; Path=/web; HttpOnly; SameSite=Strict; Max-Age=3600"
+        assert!(
+            c.starts_with(
+                "estacao_operador=tok123; Path=/web; HttpOnly; SameSite=Strict; Max-Age=3600; Expires="
+            ),
+            "{c}"
         );
+        assert!(c.ends_with(" GMT"), "{c}");
         let root_uri: Uri = "/estacao/api/entrar".parse().unwrap();
         let c_root = cookie_dispositivo(&h, "tok123", 3600, &root_uri);
-        assert_eq!(
-            c_root,
-            "estacao_operador=tok123; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600"
+        assert!(
+            c_root.starts_with(
+                "estacao_operador=tok123; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600; Expires="
+            ),
+            "{c_root}"
         );
+    }
+
+    #[tokio::test]
+    async fn sessao_restaura_via_cookie_e_vinculo_desktop_por_30_dias() {
+        assert_eq!(TTL, 30 * 24 * 60 * 60);
+        let tmp = TempDir::new().unwrap();
+        let state = estado_web(&tmp);
+        let pubkey_hex = "ab".repeat(32);
+        let tok_inicial = "tok-inicial-30d";
+        let vence = agora() + TTL;
+        estacao(&state)
+            .mudar(|e| {
+                e.nostr_perfil.npub = "npub1teste".into();
+                e.nostr_perfil.pubkey_hex = pubkey_hex.clone();
+                e.nostr_perfil.autenticado = true;
+                e.dispositivos_nostr
+                    .insert(hash_dispositivo(tok_inicial), vence);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let uri: Uri = "/web/estacao/api/sessao".parse().unwrap();
+        // A persistent HttpOnly cookie survives a server restart.
+        let mut h_salvo = HeaderMap::new();
+        h_salvo.insert(header::HOST, HeaderValue::from_static("127.0.0.1:49374"));
+        h_salvo.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        h_salvo.insert(
+            header::COOKIE,
+            HeaderValue::from_static("estacao_operador=tok-inicial-30d"),
+        );
+        let r1 = sessao(OriginalUri(uri.clone()), State(state.clone()), h_salvo).await;
+        assert_eq!(r1.status(), StatusCode::OK);
+        assert!(r1.headers().get("x-estacao-token").is_none());
+        assert!(r1.headers().get(header::SET_COOKIE).is_some());
+
+        // Recreate the in-memory station from its saved state, as after restart.
+        let reaberto = Arc::new(WebState::new(state.reader.clone(), state.wiki.clone()));
+        let mut persistido = HeaderMap::new();
+        persistido.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        persistido.insert(
+            header::COOKIE,
+            HeaderValue::from_static("estacao_operador=tok-inicial-30d"),
+        );
+        assert_eq!(
+            sessao(OriginalUri(uri.clone()), State(reaberto), persistido)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+
+        let mut invalido = HeaderMap::new();
+        invalido.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        invalido.insert(
+            header::COOKIE,
+            HeaderValue::from_static("estacao_operador=forjado"),
+        );
+        let recusado = sessao(OriginalUri(uri.clone()), State(state.clone()), invalido).await;
+        assert_eq!(recusado.status(), StatusCode::UNAUTHORIZED);
+        assert!(recusado.headers().get("x-estacao-cofre").is_none());
+        estacao(&state)
+            .mudar(|e| {
+                e.dispositivos_nostr
+                    .insert(hash_dispositivo("expirado"), agora() - 1);
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let mut expirado = HeaderMap::new();
+        expirado.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        expirado.insert(
+            header::COOKIE,
+            HeaderValue::from_static("estacao_operador=expirado"),
+        );
+        let recusado = sessao(OriginalUri(uri.clone()), State(state.clone()), expirado).await;
+        assert_eq!(recusado.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Mesmo sem cookie nem localStorage, um vínculo desktop válido no disco restaura dentro dos 30 dias.
+        let ticket = "ticket-desktop-unico";
+        std::fs::write(
+            tmp.path().join(".nostr-desktop"),
+            format!("{:x}", Sha256::digest(ticket.as_bytes())),
+        )
+        .unwrap();
+        let mut h_vinculo = HeaderMap::new();
+        h_vinculo.insert(header::HOST, HeaderValue::from_static("127.0.0.1:49374"));
+        h_vinculo.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        h_vinculo.insert(
+            header::COOKIE,
+            HeaderValue::from_static("estacao_operador=cookie-antigo"),
+        );
+        h_vinculo.insert("x-estacao-vinculo", HeaderValue::from_static(ticket));
+        let mut forjado = h_vinculo.clone();
+        forjado.insert(
+            "x-estacao-vinculo",
+            HeaderValue::from_static("ticket-forjado"),
+        );
+        assert_eq!(
+            sessao(OriginalUri(uri.clone()), State(state.clone()), forjado)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert!(tmp.path().join(".nostr-desktop").exists());
+        let r2 = sessao(OriginalUri(uri.clone()), State(state.clone()), h_vinculo).await;
+        assert_eq!(r2.status(), StatusCode::OK);
+        let novo_cookie = r2
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap()
+            .to_owned();
+        assert!(!novo_cookie.contains(tok_inicial));
+        assert!(novo_cookie.contains("HttpOnly"));
+        assert!(r2.headers().get("x-estacao-token").is_none());
+        assert_eq!(
+            r2.headers()
+                .get("x-estacao-vence")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            vence.to_string()
+        );
+        assert!(!tmp.path().join(".nostr-desktop").exists());
+
+        // 3. Após sair(), o vínculo desktop não restaura sem novo login.
+        estacao(&state)
+            .mudar(|e| {
+                e.dispositivos_nostr.clear();
+                e.nostr_perfil.autenticado = false;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let ticket2 = "ticket-pos-sair";
+        std::fs::write(
+            tmp.path().join(".nostr-desktop"),
+            format!("{:x}", Sha256::digest(ticket2.as_bytes())),
+        )
+        .unwrap();
+        let mut h_pos_sair = HeaderMap::new();
+        h_pos_sair.insert(CABECALHO, HeaderValue::from_static("dispositivo"));
+        h_pos_sair.insert("x-estacao-vinculo", HeaderValue::from_static(ticket2));
+        let r3 = sessao(OriginalUri(uri), State(state), h_pos_sair).await;
+        assert_eq!(r3.status(), StatusCode::UNAUTHORIZED);
+        assert!(tmp.path().join(".nostr-desktop").exists());
     }
 
     #[test]

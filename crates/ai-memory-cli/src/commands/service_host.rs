@@ -344,6 +344,8 @@ pub async fn run(config: &Config, args: ServiceHostArgs, config_path: Option<&Pa
             server_pid: None,
         },
     )?;
+    let _tray_guard =
+        super::windows_tray::TrayGuard::spawn(&config.data_dir, &exe, config_path, &stop_request);
     let mut server_args = install;
     server_args.extend(["serve", "--transport", "http", "--enable-web"].map(Into::into));
     let outcome = tokio::task::spawn_blocking(move || {

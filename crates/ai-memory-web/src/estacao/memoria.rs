@@ -826,7 +826,7 @@ async fn resolver_escopo_leitura(
 async fn ler_escopo_detalhado(
     state: &WebState,
     scope: ai_memory_store::ResolvedScope,
-    limite_paginas: usize,
+    limite_paginas: i64,
     limite_sessoes: usize,
 ) -> Result<EscopoDetalhe, String> {
     let (w, p) = (scope.workspace_id, scope.project_id);
@@ -871,7 +871,7 @@ async fn ler_escopo_detalhado(
             )?;
             let paginas = stmt_p
                 .query_map(
-                    rusqlite::params![w.as_bytes(), p.as_bytes(), limite_paginas as i64],
+                    rusqlite::params![w.as_bytes(), p.as_bytes(), limite_paginas],
                     |r| {
                         let path: String = r.get(0)?;
                         let fm_raw: String = r.get(4)?;
@@ -1044,7 +1044,9 @@ pub(crate) async fn api_exportar_memorias(
             Ok(s) => s,
             Err((status, msg)) => return (status, msg).into_response(),
         };
-        let detalhe = match ler_escopo_detalhado(&state, resolved, 10_000, 1).await {
+        // SQLite LIMIT -1 exports every page, including the frontmatter that
+        // rebuilds entities and typed relations on the destination machine.
+        let detalhe = match ler_escopo_detalhado(&state, resolved, -1, 1).await {
             Ok(d) => d,
             Err(msg) => return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
         };
@@ -1337,33 +1339,31 @@ pub(crate) async fn api_importar_memorias(
                     .into_response();
             }
         };
-        let mut gravadas = 0usize;
-        for pg in item.paginas {
-            if let Err(e) = state
-                .wiki
-                .write_page(WritePageRequest {
-                    workspace_id: ws_id,
-                    project_id: proj_id,
-                    path: pg.path,
-                    frontmatter: pg.frontmatter,
-                    body: pg.body,
-                    tier: pg.tier,
-                    pinned: pg.pinned,
-                    title: pg.title,
-                    admission_ctx: None,
-                    author_id: uid,
-                    evidence: Vec::new(),
-                    actor: actor.clone(),
-                })
-                .await
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Erro ao importar página de {}: {e}", item.escopo),
-                )
-                    .into_response();
-            }
-            gravadas += 1;
+        let gravadas = item.paginas.len();
+        let requests = item
+            .paginas
+            .into_iter()
+            .map(|pg| WritePageRequest {
+                workspace_id: ws_id,
+                project_id: proj_id,
+                path: pg.path,
+                frontmatter: pg.frontmatter,
+                body: pg.body,
+                tier: pg.tier,
+                pinned: pg.pinned,
+                title: pg.title,
+                admission_ctx: None,
+                author_id: uid,
+                evidence: Vec::new(),
+                actor: actor.clone(),
+            })
+            .collect();
+        if let Err(e) = state.wiki.apply_batch(requests).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Erro ao importar página de {}: {e}", item.escopo),
+            )
+                .into_response();
         }
         total_paginas += gravadas;
         importados.push(item.escopo.clone());

@@ -8,6 +8,13 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrigida a persistência do login Nostr por 30 dias, com expiração explícita do cookie, restauração pelo dispositivo e vínculo local de uso único sem renovar o prazo original.
+- Adicionado o controle do serviço em segundo plano pela bandeja do Windows, com opções de abrir e encerrar o aplicativo.
+- Corrigida a atualização no Windows para encerrar o supervisor e o servidor antes da troca dos arquivos; removido o encerramento indiscriminado de processos pelo nome no instalador.
+- Removido o corte de 10.000 páginas na exportação de conhecimento e utilizada a gravação em lote por projeto na importação. Verificada a reconstrução de entidades e relações entre projetos em uma base vazia.
+
 ## [1.7.3] — 2026-11-25
 
 ### Added

@@ -281,8 +281,10 @@ mod slow {
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
+            // Match release ZIP compression: an uncompressed debug executable
+            // can exceed the download cap before the upgrade is exercised.
             let options =
-                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
             zip.start_file("estacao-ai.exe", options)
                 .expect("start exe");
             zip.write_all(binary).expect("write exe");
