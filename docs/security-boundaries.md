@@ -5,14 +5,21 @@ Its additional Nostr session gate requires a signed, single-use server challenge
 The QR login uses NIP-46 to ask a mobile signer to sign that same challenge.
 The browser generates the QR locally. Only encrypted signer messages pass through
 the relay. A successful browser login sets an HttpOnly, SameSite=Strict device
-cookie for 30 days. The server records its digest and absolute expiration, binds
-it to the primary web session when present, and revokes it on Nostr logout.
+cookie with Max-Age and Expires for 30 days. The server records its digest and
+absolute expiration and revokes it on Nostr logout. The device credential stays
+in the HttpOnly cookie and is not exposed through response headers. A one-use desktop
+launch ticket can restore an existing operator session; it cannot extend its
+expiration or create a session when no authorized device remains.
 Changing the Nostr account invalidates the previous account's devices. Reloading
 restores panel access. Signing new Nostr events still requires a connected signer.
 `estacao_acoes::login_nostr_recusa_desafio_desconhecido_e_token_invalido`
 rejects an unissued challenge and an invalid token, then verifies a valid login.
 `com_login_nostr` checks replay refusal. The application launcher preserves
 configured bearer credentials.
+`sessao_restaura_via_cookie_e_vinculo_desktop_por_30_dias` refuses forged
+and expired tokens and a forged desktop ticket, then restores a legitimate
+device and verifies that the original expiration is unchanged. A stale cookie
+does not block a valid desktop ticket.
 `node tests/e2e/nostr_key_generation.mjs` verifies that key creation refuses
 missing cryptographic randomness and uses the browser CSPRNG when available.
 

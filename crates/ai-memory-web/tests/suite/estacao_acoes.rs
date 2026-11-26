@@ -248,7 +248,7 @@ async fn atualizacao_migra_dispositivo_anterior_sem_renovar_o_prazo() {
     assert!((7100..=7200).contains(&ttl));
     assert_eq!(
         cookies[1],
-        "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure"
+        "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure"
     );
     assert_eq!(
         consulta(cookie.split(';').next().unwrap())
@@ -636,7 +636,7 @@ async fn expira_cookie_legado_na_migracao_e_no_logout() {
     assert!(!cookies_migracao[0].contains("; Secure"));
     assert_eq!(
         cookies_migracao[1],
-        "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+        "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
     );
     let par_novo = cookies_migracao[0].split(';').next().unwrap().to_owned();
 
@@ -663,8 +663,8 @@ async fn expira_cookie_legado_na_migracao_e_no_logout() {
     assert_eq!(
         cookies_logout_https,
         [
-            "estacao_operador=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure",
-            "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure",
+            "estacao_operador=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure",
+            "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure",
         ]
     );
 
@@ -688,8 +688,8 @@ async fn expira_cookie_legado_na_migracao_e_no_logout() {
     assert_eq!(
         cookies_logout_local,
         [
-            "estacao_operador=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
-            "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+            "estacao_operador=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+            "estacao_dispositivo=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
         ]
     );
 }

@@ -79,6 +79,12 @@ pub async fn run(config: &Config, config_path: Option<&Path>, args: UpgradeArgs)
     }
 
     let extract_root = download_and_extract_release(i18n, &fetcher, &base, &tag).await?;
+    let host_state = super::service_host::state_file(&config.data_dir);
+    let reiniciar_host = cfg!(windows) && super::service_host::running(&host_state).is_some();
+    if cfg!(windows) {
+        super::service_host::stop(&host_state, &super::user_service::SystemRunner)
+            .context("stopping the running server before upgrading")?;
+    }
     apply_extracted_release(i18n, extract_root.path(), &exe)?;
 
     // The running process still contains the old release's embedded templates.
@@ -86,6 +92,25 @@ pub async fn run(config: &Config, config_path: Option<&Path>, args: UpgradeArgs)
     // rendered by the version that was just installed.
     run_replacement_refresh(&exe, &config.data_dir, config_path)?;
     refresh_plugins(config, &super::user_service::SystemRunner);
+    if reiniciar_host {
+        let mut cmd = Command::new(&exe);
+        cmd.args(["--data-dir"]).arg(&config.data_dir);
+        if let Some(cfg_path) = config_path {
+            cmd.args(["--config"]).arg(cfg_path);
+        }
+        cmd.arg("service-host")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        cmd.spawn()
+            .context("restarting the upgraded service host")?;
+    }
     warn_remote_server(config);
     println!(
         "{}",

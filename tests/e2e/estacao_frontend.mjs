@@ -502,6 +502,38 @@ test("entrarNostr suporta hex, nsec1, NIP-07, erro de conta divergente e valida 
   }
 });
 
+test("dispositivo restaura pelo vínculo desktop sem copiar a credencial ao localStorage", async () => {
+  const kp = makeKeypair(0x43);
+  const storage = createMemoryStorage();
+  let consultas = 0;
+  await withMockBrowser({
+    url: "http://localhost/web/estacao#estacao-vinculo=ticket-de-teste",
+    localStorage: storage,
+    fetch: async (url, init) => {
+      if (url === "estacao/api/sessao") {
+        assert.equal(init.headers["X-Estacao-Vinculo"], consultas++ === 0 ? "ticket-de-teste" : undefined);
+        assert.equal(init.credentials, "same-origin");
+        return Response.json(kp.pubHex);
+      }
+      assert.equal(init.headers["X-Estacao-Sessao"], "dispositivo");
+      return new Response(null, { status: 204 });
+    },
+  }, async ({ mod }) => {
+    assert.equal(await mod.restaurarDispositivo(), true);
+    assert.equal(mod.contaAtiva(), kp.pubHex);
+    assert.equal(await mod.restaurarDispositivo(), true);
+    assert.equal(storage.store.size, 0);
+    await mod.sairNostr();
+    assert.equal(storage.store.size, 0);
+  });
+  await withMockBrowser({
+    fetch: async () => new Response(null, { status: 401 }),
+  }, async ({ mod }) => {
+    assert.equal(await mod.restaurarDispositivo(), false);
+    assert.equal(Boolean(mod.contaAtiva()), false);
+  });
+});
+
 test("cofre AES-GCM em restaurarDispositivo grava/restaura com AAD, rejeita divergente/expirado e recarrega ao vencer prazo", async () => {
   const kp = makeKeypair(0x44);
   const outro = makeKeypair(0x55);

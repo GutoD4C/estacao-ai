@@ -1035,3 +1035,5 @@ diag-jail-cannot-carry-this-checkouts-server-profile = --jail não pode levar ao
 diag-this-checkouts-marker-selects-a-refused-server-profile = o .estacao-ai.toml deste checkout seleciona o perfil de servidor { $value0 }, que foi recusado ({ $value1 }); nada foi enviado. Rode `estacao-ai hook --check-capture` aqui ou `estacao-ai server list` para ver o motivo, ou defina AI_MEMORY_SERVER_URL para escolher um servidor para este comando
 diag-true-yolo-is-now-yolo = estacao-ai: --true-yolo agora é o mesmo que --yolo; use --yolo
 diag-claude-true-yolo-deprecated = estacao-ai: claude_true_yolo está obsoleto e é ignorado: --yolo no Claude agora sempre força bypassPermissions; remova-o do config.toml
+diag-upgrade-stopping-host = encerrando o servidor em execução antes de atualizar
+diag-upgrade-restarting-host = reiniciando o supervisor após a atualização

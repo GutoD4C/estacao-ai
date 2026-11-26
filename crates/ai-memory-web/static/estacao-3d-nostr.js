@@ -182,11 +182,13 @@ async function cofreDoAssinador(resposta, guardar) {
 export async function restaurarDispositivo(esperada) {
   const headers = {"X-Estacao-Sessao":"dispositivo"};
   if (esperada) headers["X-Estacao-Conta"] = esperada;
+  if (!esperada && vinculoDesktop) headers["X-Estacao-Vinculo"] = vinculoDesktop;
   const r = await fetch("estacao/api/sessao", {headers, credentials:"same-origin", cache:"no-store"});
   if (r.status === 401) return false;
   if (!r.ok) throw new Error("Não foi possível consultar a sessão. Tente novamente.");
   const confirmada = await r.json();
   if (esperada && esperada !== confirmada) throw new Error("A conta do dispositivo mudou.");
+  vinculoDesktop = null;
   conta = confirmada;
   token = "dispositivo";
   if (esperada) await cofreDoAssinador(r, true);
@@ -245,7 +247,7 @@ export async function entrarNostr(segredo, mostrarQR, signal, contaEsperada) {
 export async function sairNostr() {
   const r = await requisicao("estacao/api/sair", post(null));
   if (!r.ok) throw new Error("Não foi possível encerrar a sessão. Tente novamente.");
-  localStorage.removeItem(nomeCofre());
+  try { localStorage.removeItem?.(nomeCofre()); } catch {}
   limparSessao(); window.location.reload();
 }
 

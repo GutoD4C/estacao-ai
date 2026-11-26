@@ -2579,7 +2579,7 @@ function abrirModalImportarMemoria(){
     });
 
     card.append(
-      h("p",{class:"muted",texto:"Selecione um arquivo de backup (.json) gerado pela Estação I.A, escolha todos ou apenas alguns projetos, inspecione o conteúdo e importe."}),
+      h("p",{class:"muted",texto:"Importe o conhecimento de outro computador: páginas, regras, aprendizados, entidades e relações do grafo. Selecione o arquivo .json, escolha os projetos e confira o conteúdo antes de importar."}),
       campo("Arquivo de backup (.json)",inputArq),
       err,
       previewArea,

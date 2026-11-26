@@ -1922,6 +1922,10 @@ pub async fn run(config: &Config, args: ServeArgs) -> Result<()> {
                     &args.web_slug,
                 ))
             });
+            let app_shutdown = Arc::new(tokio::sync::Notify::new());
+            if let Some(ref st) = web.nostr {
+                st.attach_shutdown(Arc::clone(&app_shutdown));
+            }
             let router = refuse_cross_origin_browser_requests(machine.merge(admin), auth_enabled)
                 .merge(healthz_router())
                 .merge(public_auth_router(auth_state.clone()))
@@ -2074,8 +2078,14 @@ pub async fn run(config: &Config, args: ServeArgs) -> Result<()> {
                     router.into_make_service_with_connect_info::<SocketAddr>(),
                 )
                 .with_graceful_shutdown(async move {
-                    let signal = shutdown.recv().await;
-                    info!(signal, "shutdown signal received; draining");
+                    tokio::select! {
+                        signal = shutdown.recv() => {
+                            info!(signal, "shutdown signal received; draining");
+                        }
+                        () = app_shutdown.notified() => {
+                            info!("self-shutdown requested (update); draining");
+                        }
+                    }
                     shutdown_cancel.cancel();
                 })
                 .into_future();

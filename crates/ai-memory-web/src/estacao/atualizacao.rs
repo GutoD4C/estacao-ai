@@ -423,6 +423,7 @@ fn aplicar_deb_linux(
 fn aplicar_exe_windows(
     exe_bytes: &[u8],
     nome_arquivo: &str,
+    state: Arc<WebState>,
 ) -> Result<(String, bool, Option<String>), String> {
     let nome_seguro = nome_arquivo_seguro(nome_arquivo)?;
     let destino = std::env::temp_dir().join(&nome_seguro);
@@ -430,10 +431,20 @@ fn aplicar_exe_windows(
     std::process::Command::new(&destino)
         .spawn()
         .map_err(|e| format!("erro ao abrir o instalador: {e}"))?;
+
+    // Fecha cooperativamente o supervisor/bandeja e o servidor HTTP logo após
+    // enviar a resposta ao navegador, evitando conflito de arquivo em uso.
+    let stop_file = state.wiki.data_dir().join("service-host.stop");
+    let state_clone = Arc::clone(&state);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(650)).await;
+        let _ = std::fs::write(&stop_file, b"update");
+        state_clone.request_shutdown();
+    });
+
     Ok((
-        "Instalador oficial baixado e verificado. Conclua a atualização na janela aberta."
-            .to_owned(),
-        false,
+        "Instalador oficial baixado e verificado. Fechando esta versão automaticamente para atualizar sem conflitos…".to_owned(),
+        true,
         Some(destino.display().to_string()),
     ))
 }
@@ -603,7 +614,7 @@ pub(crate) async fn api_aplicar_atualizacao(
         }
         #[cfg(windows)]
         {
-            aplicar_exe_windows(&bytes, &asset.name)
+            aplicar_exe_windows(&bytes, &asset.name, Arc::clone(&state))
         }
         #[cfg(not(any(target_os = "linux", windows)))]
         {
