@@ -19,7 +19,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 - **Smart TV 3D (YouTube)**: alinhada a leitura da busca no Chalé 3D ao formato `{ results, title, channel, duration }` retornado por `/estacao/api/youtube`.
 - **Primeiro carregamento sem CLI & Statusline multiplataforma**: corrigido travamento em `"Carregando…"` quando `auto_configurar` encontra zero ferramentas ativas, removido caminho pessoal fixo da aba Consumo e adicionado `scripts/estacao/statusline-limites.ps1` para Windows.
 - **Orquestração, parser de avaliações e instalador Windows**: corrigida colisão de prefixo em menções `@Nome`, parsing balanceado de `AVALIACAO_JSON:` ignorando colchetes posteriores e fechamento seguro de `estacao-ai.exe` via `CloseApplications` no Inno Setup.
-- **CI, companions, plugins, CodeQL e Nix**: corrigidos erros de `clippy`/`rustfmt`, imports `estacao_ai_*` nos companions, `Cargo.lock` do `estacao-ai-desktop`, manifests e testes E2E de `plugins/` (`--estacao-ai-bin` e versão `1.7.2`), `upload-sarif` v4.39.4 no CodeQL, `flake.nix` sem hash órfão de `zip-8.6.0` e `scripts/check-dashboard-core-mutations.py`.
+- **CI, companions, plugins, CodeQL e Nix**: corrigidos erros de `clippy`/`rustfmt`, imports `estacao_ai_*` nos companions, `Cargo.lock` do `estacao-ai-desktop`, manifests e testes E2E de `plugins/` e relay (`--estacao-ai-bin` e versão `1.7.2`), asserções `pt-BR` do console de gerenciamento em `ai-memory-mcp`, `upload-sarif` v4.39.4 no CodeQL, `flake.nix` sem hash órfão de `zip-8.6.0` e `scripts/check-dashboard-core-mutations.py`.
 
 ### Changed
 

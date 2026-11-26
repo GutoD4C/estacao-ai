@@ -199,7 +199,7 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.timeout_seconds < 1:
         parser.error("--timeout-seconds must be at least 1")
-    for option in ("ai_memory_bin", "relay_bin"):
+    for option in ("estacao_ai_bin", "relay_bin"):
         value = getattr(args, option)
         if not value.is_absolute():
             parser.error(f"--{option.replace('_', '-')} must be an absolute path")
@@ -427,7 +427,7 @@ class Harness:
         self.server_log_handle = server_log.open("xb")
         self.server = subprocess.Popen(
             [
-                str(self.args.ai_memory_bin),
+                str(self.args.estacao_ai_bin),
                 "--data-dir",
                 str(self.data),
                 "serve",
@@ -534,7 +534,7 @@ class Harness:
         env = self.environment(GOOD_TOKEN)
         env["AI_MEMORY_CAPTURE_OWNER"] = "external-relay-e2e"
         command = [
-            str(self.args.ai_memory_bin),
+            str(self.args.estacao_ai_bin),
             "--data-dir",
             str(self.data),
             "hook",

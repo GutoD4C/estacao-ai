@@ -867,7 +867,7 @@ async fn management_html_plain_forms_preserve_csrf_owner_and_machine_boundaries(
     )
     .await;
     assert_eq!(own_events.0, StatusCode::OK);
-    assert!(own_events.1.contains("Session events"));
+    assert!(own_events.1.contains("Eventos da sessão"));
     assert_eq!(
         html_request(
             &h,
@@ -954,7 +954,7 @@ async fn management_html_plain_forms_preserve_csrf_owner_and_machine_boundaries(
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(preview.contains("Handoffs unlinked in other projects"));
+    assert!(preview.contains("Handoffs desvinculados em outros projetos"));
     assert!(
         h.store
             .reader
@@ -1101,7 +1101,7 @@ async fn management_html_login_rejects_cross_origin_forms_and_preserves_session_
     )
     .await;
     assert_eq!(empty_sessions.0, StatusCode::OK);
-    assert!(empty_sessions.1.contains("No sessions in this project"));
+    assert!(empty_sessions.1.contains("Nenhuma sessão neste projeto"));
     assert!(!empty_sessions.1.contains("<table"));
     let body = "action=login&username=alice&password=password-for-test";
     for origin in ["https://evil.example", "null", ""] {
