@@ -949,7 +949,10 @@ fn mediador_aguarda_todos_falantes_e_pontua_todos() {
     let ex1 = agendar(&mut e, &sala, "geral", a1.clone(), &mem, None, None);
     // Ainda há outros falantes "pensando": Mediador NÃO deve ser disparado prematuramente.
     let p1 = proximos(&mut e, &sala, &ex1);
-    assert!(p1.is_empty(), "Mediador não deve disparar antes dos outros terminarem");
+    assert!(
+        p1.is_empty(),
+        "Mediador não deve disparar antes dos outros terminarem"
+    );
 
     // Todos os 3 falantes concluem suas respostas.
     e.mensagens.retain(|m| m.id != ex1.mensagem);
@@ -967,7 +970,11 @@ fn mediador_aguarda_todos_falantes_e_pontua_todos() {
     ex3.mensagem = "m3".into();
 
     let p3 = proximos(&mut e, &sala, &ex3);
-    assert_eq!(p3.len(), 1, "Mediador deve disparar quando o último falante termina");
+    assert_eq!(
+        p3.len(),
+        1,
+        "Mediador deve disparar quando o último falante termina"
+    );
     assert_eq!(p3[0].agente.id, "a4");
     assert!(p3[0].prompt.contains("Filósofo"));
     assert!(p3[0].prompt.contains("Cético"));
@@ -975,11 +982,51 @@ fn mediador_aguarda_todos_falantes_e_pontua_todos() {
 
     // Mesmo se o modelo retornar JSON só para 1 dos 3, todos os 3 recebem nota!
     let mut resp_parcial = "Boa discussão!\nAVALIACAO_JSON: [{\"agente\":\"Filósofo\",\"clareza\":9,\"fundamentacao\":8,\"colaboracao\":9,\"pontos_fortes\":\"Claro\",\"melhorar\":\"Dar exemplo\"}]".to_owned();
-    let qtd = registrar_avaliacoes_mediador(&mut e, "ch1", &p3[0].mensagem, &mut resp_parcial, true);
+    let qtd =
+        registrar_avaliacoes_mediador(&mut e, "ch1", &p3[0].mensagem, &mut resp_parcial, true);
     assert_eq!(qtd, 3);
     assert_eq!(e.avaliacoes.len(), 3);
-    let nomes_avaliados: HashSet<_> = e.avaliacoes.iter().map(|a| a.agente_nome.as_str()).collect();
+    let nomes_avaliados: HashSet<_> = e
+        .avaliacoes
+        .iter()
+        .map(|a| a.agente_nome.as_str())
+        .collect();
     assert!(nomes_avaliados.contains("Filósofo"));
     assert!(nomes_avaliados.contains("Cético"));
     assert!(nomes_avaliados.contains("Pragmático"));
+}
+
+#[test]
+fn menciona_agente_evita_colisao_de_prefixo_e_json_ignora_colchetes_posteriores() {
+    let claude = ag("c1", "Claude", "desenvolvedor");
+    let claude_opus = ag("c2", "Claude-Opus", "revisor_codigo");
+    let p = Projeto {
+        id: "p1".into(),
+        nome: "Estação".into(),
+        agentes: vec!["c1".into(), "c2".into()],
+        ..Projeto::default()
+    };
+    let dest = destinos_chat_geral(
+        &p,
+        &[claude.clone(), claude_opus.clone()],
+        "Fale com @Claude-Opus apenas",
+    );
+    let ids: Vec<_> = dest.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["c2"]);
+    assert!(super::execucao::menciona_agente(
+        "Olá @Claude, tudo bem?",
+        "Claude"
+    ));
+
+    let mut e = Estado {
+        agentes: vec![claude],
+        projetos: vec![p],
+        ..Estado::default()
+    };
+    let mut resp = "Síntese.\nAVALIACAO_JSON: [{\"agente\":\"Claude\",\"clareza\":8,\"fundamentacao\":9,\"colaboracao\":8,\"pontos_fortes\":\"Objetivo\",\"melhorar\":\"Detalhar testes\"}]\n[Nota extra fora do JSON]".to_owned();
+    let qtd = registrar_avaliacoes_mediador(&mut e, "p1", "m99", &mut resp, false);
+    assert_eq!(qtd, 1);
+    assert!(resp.contains("Pontuação Interna do Mediador"));
+    assert!(!resp.contains("AVALIACAO_JSON"));
+    assert!(!resp.contains("[Nota extra fora do JSON]"));
 }

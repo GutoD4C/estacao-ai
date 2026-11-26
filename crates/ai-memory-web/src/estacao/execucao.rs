@@ -78,7 +78,7 @@ pub(super) fn destinos_chat_geral(p: &Projeto, equipe: &[Agente], texto: &str) -
     }
     let citados: Vec<Agente> = equipe
         .iter()
-        .filter(|a| texto.contains(&format!("@{}", a.nome)))
+        .filter(|a| menciona_agente(texto, &a.nome))
         .cloned()
         .collect();
     if !citados.is_empty() {
@@ -219,7 +219,7 @@ pub(super) fn detectar_pedido_debate(texto: &str) -> Option<(String, usize)> {
 fn selecionar_participantes_debate(equipe: &[Agente], texto: &str) -> Vec<String> {
     let citados: Vec<String> = equipe
         .iter()
-        .filter(|a| texto.contains(&format!("@{}", a.nome)))
+        .filter(|a| menciona_agente(texto, &a.nome))
         .map(|a| a.id.clone())
         .collect();
     if citados.len() >= 2 {
@@ -395,6 +395,68 @@ fn normalizar_chave_nome(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
+/// Verifica menção `@Nome` com fronteira de identificador, evitando falso positivo de prefixo (`@Claude` em `@Claude-Opus`).
+pub(super) fn menciona_agente(texto: &str, nome: &str) -> bool {
+    let nome = nome.trim();
+    if nome.is_empty() {
+        return false;
+    }
+    let alvo = format!("@{nome}");
+    let eh_ident = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-');
+    let mut inicio = 0;
+    while let Some(pos) = texto[inicio..].find(&alvo) {
+        let abs = inicio + pos;
+        let antes_ok = texto[..abs]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !eh_ident(c));
+        let depois = abs + alvo.len();
+        let depois_ok = texto[depois..].chars().next().is_none_or(|c| !eh_ident(c));
+        if antes_ok && depois_ok {
+            return true;
+        }
+        inicio = abs + 1;
+    }
+    false
+}
+
+/// Extrai o primeiro array/objeto JSON balanceado em `apos`, ignorando colchetes/chaves em texto posterior.
+fn extrair_primeiro_json(apos: &str) -> Option<&str> {
+    let (ini, abre, fecha) = match (apos.find('['), apos.find('{')) {
+        (Some(a), Some(b)) if b < a => (b, '{', '}'),
+        (Some(a), _) => (a, '[', ']'),
+        (None, Some(b)) => (b, '{', '}'),
+        (None, None) => return None,
+    };
+    let trecho = &apos[ini..];
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut escaped = false;
+    for (idx, ch) in trecho.char_indices() {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_str = true;
+        } else if ch == abre {
+            depth += 1;
+        } else if ch == fecha {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(&trecho[..=idx]);
+            }
+        }
+    }
+    None
+}
+
 pub(super) fn registrar_avaliacoes_mediador(
     e: &mut Estado,
     projeto_id: &str,
@@ -425,25 +487,15 @@ pub(super) fn registrar_avaliacoes_mediador(
     let mut texto_limpo = texto.clone();
     if let Some(pos) = texto.find("AVALIACAO_JSON:") {
         let apos = texto[pos + "AVALIACAO_JSON:".len()..].trim();
-        let json_trecho = if let (Some(ini), Some(fim)) = (apos.find('['), apos.rfind(']')) {
-            if fim >= ini {
-                Some(&apos[ini..=fim])
-            } else {
-                None
-            }
-        } else if let (Some(ini), Some(fim)) = (apos.find('{'), apos.rfind('}')) {
-            if fim >= ini {
-                Some(&apos[ini..=fim])
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let json_trecho = extrair_primeiro_json(apos);
         let itens_parsed = json_trecho.and_then(|raw| {
             serde_json::from_str::<Vec<EntradaAvaliacao>>(raw)
                 .ok()
-                .or_else(|| serde_json::from_str::<EntradaAvaliacao>(raw).ok().map(|x| vec![x]))
+                .or_else(|| {
+                    serde_json::from_str::<EntradaAvaliacao>(raw)
+                        .ok()
+                        .map(|x| vec![x])
+                })
         });
         if let Some(itens) = itens_parsed {
             for item in itens {

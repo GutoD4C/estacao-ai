@@ -80,6 +80,7 @@ struct ConsumoResposta {
     agentes: Vec<ConsumoAgente>,
     modelos_observados: Vec<ModeloObservado>,
     claude_statusline_ativo: bool,
+    claude_statusline_snippet: String,
 }
 
 #[derive(Clone, Default)]
@@ -439,20 +440,52 @@ pub(crate) async fn api_consumo(State(state): State<Arc<WebState>>) -> Response 
         agentes: lista,
         modelos_observados,
         claude_statusline_ativo,
+        claude_statusline_snippet: format!(
+            "\"statusLine\": {{ \"type\": \"command\", \"command\": {} }}",
+            serde_json::to_string(&comando_statusline_claude()).unwrap_or_default()
+        ),
     })
     .into_response()
+}
+
+fn script_statusline_claude() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let rel = "scripts/estacao/statusline-limites.ps1";
+    #[cfg(not(windows))]
+    let rel = "scripts/estacao/statusline-limites.sh";
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join(rel)))
+        .filter(|p| p.is_file())
+}
+
+fn comando_statusline_claude() -> String {
+    #[cfg(windows)]
+    let path_str = script_statusline_claude()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| {
+            "%LOCALAPPDATA%\\Programs\\estacao-ai\\scripts\\estacao\\statusline-limites.ps1".into()
+        });
+    #[cfg(windows)]
+    {
+        format!("powershell -NoProfile -ExecutionPolicy Bypass -File \"{path_str}\"")
+    }
+    #[cfg(not(windows))]
+    {
+        let path_str = script_statusline_claude()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| {
+                "$HOME/.local/share/estacao-ai/scripts/estacao/statusline-limites.sh".into()
+            });
+        format!("\"{path_str}\"")
+    }
 }
 
 /// Liga a linha de status da Estação no Claude Code, para ler os limites de
 /// 5 h e semanal. Não mexe numa linha de status que já exista.
 pub(super) fn configurar_statusline_claude() -> Result<bool, String> {
-    let script = std::env::current_exe()
-        .ok()
-        .and_then(|e| {
-            e.parent()
-                .map(|d| d.join("scripts/estacao/statusline-limites.sh"))
-        })
-        .filter(|p| p.is_file())
+    let _script = script_statusline_claude()
         .ok_or("Script da linha de status não instalado ao lado do binário.")?;
     let arquivo = dirs_home().join(".claude/settings.json");
     let mut v: serde_json::Value = match std::fs::read(&arquivo) {
@@ -467,7 +500,7 @@ pub(super) fn configurar_statusline_claude() -> Result<bool, String> {
     }
     obj.insert(
         "statusLine".into(),
-        serde_json::json!({ "type": "command", "command": format!("\"{}\"", script.display()) }),
+        serde_json::json!({ "type": "command", "command": comando_statusline_claude() }),
     );
     if arquivo.is_file() {
         let copia = arquivo.with_extension("json.antes-estacao-ai");
