@@ -11,14 +11,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ai_memory_wikisync::bidi::{self, CheckStatus, Outcome, Prefer, SyncArgs, SyncMode};
-use ai_memory_wikisync::state::{self, SyncState};
-use ai_memory_wikisync::sync::{Mode, RunArgs, run};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use estacao_ai_wikisync::bidi::{self, CheckStatus, Outcome, Prefer, SyncArgs, SyncMode};
+use estacao_ai_wikisync::state::{self, SyncState};
+use estacao_ai_wikisync::sync::{Mode, RunArgs, run};
 use serde_json::json;
 use tokio::net::TcpListener;
 
@@ -2182,7 +2182,7 @@ async fn redirect_pair() -> (String, Arc<std::sync::atomic::AtomicBool>) {
 async fn api_client_does_not_follow_a_redirect() {
     let (server, contacted) = redirect_pair().await;
     let client =
-        ai_memory_wikisync::client::ApiClient::new(&server, Some("secret".into())).unwrap();
+        estacao_ai_wikisync::client::ApiClient::new(&server, Some("secret".into())).unwrap();
     let error = client.list_pages("demo", "app").await.unwrap_err();
     assert!(
         error.to_string().contains("redirect"),
@@ -2199,7 +2199,7 @@ async fn api_client_does_not_follow_a_redirect() {
 #[tokio::test]
 async fn mcp_client_does_not_follow_a_redirect() {
     let (server, contacted) = redirect_pair().await;
-    let client = ai_memory_wikisync::mcp::McpClient::new(&server, Some("secret".into())).unwrap();
+    let client = estacao_ai_wikisync::mcp::McpClient::new(&server, Some("secret".into())).unwrap();
     let error = client.ensure_conditional_writes().await.unwrap_err();
     assert!(
         format!("{error:#}").contains("redirect"),

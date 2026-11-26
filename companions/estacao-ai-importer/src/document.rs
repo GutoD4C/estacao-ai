@@ -6,15 +6,16 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+#[cfg(any(unix, test))]
 use std::fs;
 #[cfg(unix)]
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use ai_memory_client::sanitize_external_text;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
+use estacao_ai_client::sanitize_external_text;
 use quick_xml::Reader as XmlReader;
 use quick_xml::events::Event;
 use quick_xml::name::ResolveResult;
@@ -30,6 +31,7 @@ use crate::mcp::{McpWrite, Precondition, PreconditionFailed};
 
 const IMPORT_VERSION: &str = "document-v1";
 const DEFAULT_DEST_PREFIX: &str = "imported/documents";
+#[cfg(any(unix, test))]
 const MAX_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4_096;
 const MAX_ARCHIVE_ENTRY_BYTES: u64 = 16 * 1024 * 1024;

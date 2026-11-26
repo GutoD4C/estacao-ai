@@ -3,13 +3,13 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ai_memory_wikisync::bidi::{
+use clap::{Parser, Subcommand, ValueEnum};
+use estacao_ai_wikisync::bidi::{
     self, CheckStatus, DEFAULT_MAX_DELETES, Prefer, SyncArgs, SyncMode,
 };
-use ai_memory_wikisync::client::DEFAULT_SERVER_URL;
-use ai_memory_wikisync::hook::{self, HookSpec, InstallArgs, OnMerge};
-use ai_memory_wikisync::sync::{Mode, RunArgs, run};
-use clap::{Parser, Subcommand, ValueEnum};
+use estacao_ai_wikisync::client::DEFAULT_SERVER_URL;
+use estacao_ai_wikisync::hook::{self, HookSpec, InstallArgs, OnMerge};
+use estacao_ai_wikisync::sync::{Mode, RunArgs, run};
 
 /// Exit codes. 2 is left to clap's usage errors.
 const EXIT_ERROR: u8 = 1;

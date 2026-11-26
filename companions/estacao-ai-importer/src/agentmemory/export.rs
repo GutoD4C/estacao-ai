@@ -632,7 +632,7 @@ fn code_list(out: &mut String, heading: &str, items: &[String]) {
 fn finish_body(body: &str, record: &str, id: &str, version: Option<u64>, key: &str) -> String {
     format!(
         "{}\n\n---\n{}\n",
-        ai_memory_client::sanitize_external_text(body).trim_end(),
+        estacao_ai_client::sanitize_external_text(body).trim_end(),
         provenance_line(record, id, version, key)
     )
 }
@@ -652,7 +652,7 @@ fn single_version(
         key,
         source_id: id.to_owned(),
         version: None,
-        title: ai_memory_client::sanitize_external_text(&title),
+        title: estacao_ai_client::sanitize_external_text(&title),
         kind: kind.to_owned(),
         tier,
         tags: tags_from(tags.iter().map(String::as_str)),
@@ -1008,7 +1008,7 @@ pub(crate) fn plan(
                 key,
                 source_id: memory.id.clone(),
                 version: memory.version,
-                title: ai_memory_client::sanitize_external_text(&title),
+                title: estacao_ai_client::sanitize_external_text(&title),
                 kind: kind.to_owned(),
                 tier,
                 tags: tags_from(memory.concepts.iter().map(String::as_str)),
@@ -1379,11 +1379,11 @@ fn replay_session(
             text.push_str(&format!("\nFiles: {}", observation.files.join(", ")));
         }
         let message = truncate_utf8(
-            &ai_memory_client::sanitize_external_text(&text),
+            &estacao_ai_client::sanitize_external_text(&text),
             MAX_EXTENSION_MESSAGE_BYTES,
         );
         let title = truncate_utf8(
-            &ai_memory_client::sanitize_external_text(&one_line(
+            &estacao_ai_client::sanitize_external_text(&one_line(
                 &observation.title,
                 MAX_TITLE_CHARS,
             )),

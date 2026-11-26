@@ -1,9 +1,9 @@
-//! Thin CLI over [`ai_memory_relay::relay`]. Parse, call, print, exit.
+//! Thin CLI over [`estacao_ai_relay::relay`]. Parse, call, print, exit.
 
 use std::path::PathBuf;
 
-use ai_memory_relay::relay::{self, FlushOptions, Report};
 use clap::{Parser, Subcommand};
+use estacao_ai_relay::relay::{self, FlushOptions, Report};
 
 /// Queue external lifecycle events for estacao-ai.
 ///

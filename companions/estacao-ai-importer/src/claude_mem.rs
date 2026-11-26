@@ -863,7 +863,7 @@ fn bounded_metadata(value: String, field: &str, max: usize) -> Result<String> {
     if value.chars().any(char::is_control) {
         bail!("{field} contains control characters");
     }
-    Ok(ai_memory_client::sanitize_external_text(&value))
+    Ok(estacao_ai_client::sanitize_external_text(&value))
 }
 
 fn optional_bounded_metadata(
@@ -972,7 +972,7 @@ fn page(
     let footer =
         format!("*Imported from claude-mem ({record} `{source_id}`). Import key: `{key}`.*");
     let finish =
-        |body: &str| bounded_page_body(&ai_memory_client::sanitize_external_text(body), &footer);
+        |body: &str| bounded_page_body(&estacao_ai_client::sanitize_external_text(body), &footer);
     let body = finish(&body);
     // What an earlier importer release wrote for this row, so a rerun
     // replaces its own older layout instead of refusing it.
@@ -988,7 +988,7 @@ fn page(
             key,
             source_id: source_id.to_owned(),
             version: None,
-            title: one_line(&ai_memory_client::sanitize_external_text(&title), 80),
+            title: one_line(&estacao_ai_client::sanitize_external_text(&title), 80),
             body,
             kind: kind.to_owned(),
             tier: "episodic",

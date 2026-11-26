@@ -283,7 +283,7 @@ pub(crate) fn plan(dir: &Path, destination: &Destination, prefix: &str) -> Resul
         let linked = rewrite_wikilinks(&page.body, |target| {
             links.get(target.trim_end_matches(".md")).cloned()
         });
-        let body = ai_memory_client::sanitize_external_text(&linked);
+        let body = estacao_ai_client::sanitize_external_text(&linked);
         let title = first_h1_line(&body)
             .map(|title| one_line(title, MAX_EXPLICIT_TITLE_CHARS))
             .filter(|title| !title.is_empty())
@@ -316,7 +316,7 @@ pub(crate) fn plan(dir: &Path, destination: &Destination, prefix: &str) -> Resul
                 key,
                 source_id: page.id,
                 version,
-                title: ai_memory_client::sanitize_external_text(&title),
+                title: estacao_ai_client::sanitize_external_text(&title),
                 body,
                 kind: kind.to_owned(),
                 tier,

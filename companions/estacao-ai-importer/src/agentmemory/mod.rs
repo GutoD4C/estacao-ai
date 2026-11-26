@@ -136,12 +136,12 @@ pub(crate) fn validate_id(id: &str, what: &str) -> Result<()> {
             "{what} id must be non-empty, at most {MAX_ID_BYTES} bytes and free of control characters"
         );
     }
-    ai_memory_client::reject_sensitive(&serde_json::json!(id))
+    estacao_ai_client::reject_sensitive(&serde_json::json!(id))
         .with_context(|| format!("{what} id looks like a credential; refusing it"))?;
     Ok(())
 }
 
-pub(crate) use ai_memory_client::display_session_id;
+pub(crate) use estacao_ai_client::display_session_id;
 
 /// estacao-ai `kind` and `tier` for an agentmemory memory `type`.
 pub(crate) fn memory_kind_tier(memory_type: &str) -> (&'static str, &'static str) {
@@ -169,7 +169,7 @@ pub(crate) fn tags_from<'a>(raw: impl IntoIterator<Item = &'a str>) -> Vec<Strin
     seen.insert(IMPORT_TAG.to_owned());
     for tag in raw {
         let tag = one_line(
-            &ai_memory_client::sanitize_external_text(tag),
+            &estacao_ai_client::sanitize_external_text(tag),
             MAX_TAG_CHARS,
         );
         if tag.is_empty() || !seen.insert(tag.clone()) {

@@ -14,14 +14,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use ai_memory_relay::ack::{self, BatchAck};
-use ai_memory_relay::identity::{self, InputEvent, ValidEvent};
-use ai_memory_relay::queue::Queue;
-use ai_memory_relay::relay::{self, FlushOptions};
+use estacao_ai_relay::ack::{self, BatchAck};
+use estacao_ai_relay::identity::{self, InputEvent, ValidEvent};
+use estacao_ai_relay::queue::Queue;
+use estacao_ai_relay::relay::{self, FlushOptions};
 
 // Compile the same queue source with private test hooks; the shipped library
 // has no hook API. These hooks place a real SQLite holder at the WAL transition.
-use ai_memory_relay::fsguard;
+use estacao_ai_relay::fsguard;
 #[allow(dead_code)]
 #[path = "../src/queue.rs"]
 mod queue_under_test;
@@ -255,7 +255,7 @@ fn query_of(url: &str) -> HashMap<String, String> {
         .collect()
 }
 
-fn flush(dir: &Path) -> ai_memory_relay::relay::Report {
+fn flush(dir: &Path) -> estacao_ai_relay::relay::Report {
     relay::flush(dir, &FlushOptions::default()).unwrap()
 }
 
@@ -519,7 +519,7 @@ fn an_oversized_http_response_is_not_retried_and_keeps_the_batch() {
         // response exceeds the body limit. The next response belongs to a
         // later explicit flush, not an automatic transport retry.
         let mut body = r#"{"accepted":1,"extra":"ACK_BODY_CANARY"}"#.to_owned();
-        body.push_str(&" ".repeat(ai_memory_relay::http::MAX_ACK_BYTES + 1 - body.len()));
+        body.push_str(&" ".repeat(estacao_ai_relay::http::MAX_ACK_BYTES + 1 - body.len()));
         let server = stub(vec![Reply::Json(status, body), Reply::AcceptAll]);
         let dir = bind(&root, &server.url());
         enqueue(
@@ -544,7 +544,7 @@ fn an_oversized_http_response_is_not_retried_and_keeps_the_batch() {
         assert_eq!(
             Queue::open(&dir)
                 .unwrap()
-                .stats(ai_memory_relay::now_ms())
+                .stats(estacao_ai_relay::now_ms())
                 .unwrap()
                 .receipts,
             0
@@ -563,7 +563,7 @@ fn an_oversized_http_response_is_not_retried_and_keeps_the_batch() {
 fn an_ack_at_the_body_limit_is_accepted() {
     let root = fixture("ack-at-limit");
     let mut body = r#"{"accepted":1}"#.to_owned();
-    body.push_str(&" ".repeat(ai_memory_relay::http::MAX_ACK_BYTES - body.len()));
+    body.push_str(&" ".repeat(estacao_ai_relay::http::MAX_ACK_BYTES - body.len()));
     let server = stub(vec![Reply::Json(200, body)]);
     let dir = bind(&root, &server.url());
     enqueue(
@@ -947,10 +947,10 @@ fn an_event_past_the_retry_window_is_retained_and_never_resent() {
     let old = valid("e-old", "claude-code", "session-start", "s-old");
     let fresh = valid("e-new", "codex", "session-start", "s-new");
     queue
-        .enqueue(&[old.clone(), fresh], ai_memory_relay::now_ms())
+        .enqueue(&[old.clone(), fresh], estacao_ai_relay::now_ms())
         .unwrap();
     // Its first durable attempt was 31 days ago: past the server's key expiry.
-    let long_ago = ai_memory_relay::now_ms() - 31 * 24 * 60 * 60 * 1000;
+    let long_ago = estacao_ai_relay::now_ms() - 31 * 24 * 60 * 60 * 1000;
     queue
         .stamp_attempt(std::slice::from_ref(&old.ingest_key), long_ago)
         .unwrap();
@@ -1001,13 +1001,13 @@ fn a_full_queue_refuses_new_work_without_dropping_anything() {
     let first: Vec<ValidEvent> = (0..200)
         .map(|i| big(&format!("e-{i}"), &format!("s-{i}")))
         .collect();
-    queue.enqueue(&first, ai_memory_relay::now_ms()).unwrap();
+    queue.enqueue(&first, estacao_ai_relay::now_ms()).unwrap();
 
     let second: Vec<ValidEvent> = (200..300)
         .map(|i| big(&format!("e-{i}"), &format!("s-{i}")))
         .collect();
     let error = queue
-        .enqueue(&second, ai_memory_relay::now_ms())
+        .enqueue(&second, estacao_ai_relay::now_ms())
         .unwrap_err();
     assert!(error.to_string().contains("queue is full"), "{error:#}");
     drop(queue);
@@ -1025,7 +1025,7 @@ fn replay_protection_counts_pending_and_receipts_together() {
     let mut queue = Queue::open(&dir).unwrap();
     let fresh = valid("e-1", "claude-code", "session-start", "s-1");
     queue
-        .enqueue(std::slice::from_ref(&fresh), ai_memory_relay::now_ms())
+        .enqueue(std::slice::from_ref(&fresh), estacao_ai_relay::now_ms())
         .unwrap();
     drop(queue);
     // Fill the receipt table to one slot below the cap in the fixture itself, so
@@ -1039,8 +1039,8 @@ fn replay_protection_counts_pending_and_receipts_together() {
                  WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
                  SELECT 'fill-' || i, 'fill', ?2, ?2 FROM n",
                 rusqlite::params![
-                    ai_memory_relay::queue::MAX_RECEIPTS - 1,
-                    ai_memory_relay::now_ms()
+                    estacao_ai_relay::queue::MAX_RECEIPTS - 1,
+                    estacao_ai_relay::now_ms()
                 ],
             )
             .unwrap();
@@ -1049,7 +1049,7 @@ fn replay_protection_counts_pending_and_receipts_together() {
 
     let another = valid("e-2", "codex", "session-start", "s-2");
     let error = queue
-        .enqueue(&[another], ai_memory_relay::now_ms())
+        .enqueue(&[another], estacao_ai_relay::now_ms())
         .unwrap_err();
     assert!(
         error.to_string().contains("replay protection is full"),
@@ -1057,7 +1057,7 @@ fn replay_protection_counts_pending_and_receipts_together() {
     );
     // A duplicate must still be recognized while full: recognizing costs nothing.
     queue
-        .enqueue(std::slice::from_ref(&fresh), ai_memory_relay::now_ms())
+        .enqueue(std::slice::from_ref(&fresh), estacao_ai_relay::now_ms())
         .expect("an already-known id is recognized even at the cap");
 }
 
@@ -1141,7 +1141,7 @@ fn the_queue_database_and_its_sidecars_are_owner_only() {
     queue
         .enqueue(
             &[valid("e-1", "codex", "session-start", "s-1")],
-            ai_memory_relay::now_ms(),
+            estacao_ai_relay::now_ms(),
         )
         .unwrap();
 
@@ -1404,11 +1404,11 @@ fn status_reports_counts_and_limits_without_payload() {
     assert_eq!(document["pending_sessions"], 1);
     assert_eq!(
         document["limits"]["receipts"],
-        ai_memory_relay::queue::MAX_RECEIPTS
+        estacao_ai_relay::queue::MAX_RECEIPTS
     );
     assert_eq!(
         document["retry_window_ms"],
-        ai_memory_relay::identity::RETRY_WINDOW_MS
+        estacao_ai_relay::identity::RETRY_WINDOW_MS
     );
 }
 
@@ -1429,7 +1429,7 @@ fn a_batch_stays_under_the_wire_budget_when_bodies_are_large() {
             identity::validate(0, input, "example.runtime", "operator-a").unwrap()
         })
         .collect();
-    queue.enqueue(&events, ai_memory_relay::now_ms()).unwrap();
+    queue.enqueue(&events, estacao_ai_relay::now_ms()).unwrap();
     drop(queue);
 
     // 40 sessions, one head each: the item count would allow a single batch of
@@ -2052,7 +2052,7 @@ fn sparse_drop_ack_dequeues_and_records_outcomes() {
             &(0..3)
                 .map(|i| valid(&format!("e{i}"), "codex", "session-start", &format!("s{i}")))
                 .collect::<Vec<_>>(),
-            ai_memory_relay::now_ms(),
+            estacao_ai_relay::now_ms(),
         )
         .unwrap();
     drop(queue);
@@ -2061,7 +2061,7 @@ fn sparse_drop_ack_dequeues_and_records_outcomes() {
     assert_eq!(pending_count(&dir), 1);
     let stats = Queue::open(&dir)
         .unwrap()
-        .stats(ai_memory_relay::now_ms())
+        .stats(estacao_ai_relay::now_ms())
         .unwrap();
     assert_eq!(stats.receipt_outcomes["stored"], 1);
     assert_eq!(stats.receipt_outcomes["dropped_policy"], 1);
@@ -2097,7 +2097,7 @@ fn malformed_results_keep_every_item_pending() {
                     valid("a", "codex", "session-start", "a"),
                     valid("b", "codex", "session-start", "b"),
                 ],
-                ai_memory_relay::now_ms(),
+                estacao_ai_relay::now_ms(),
             )
             .unwrap();
         drop(queue);
@@ -2106,7 +2106,7 @@ fn malformed_results_keep_every_item_pending() {
         assert_eq!(
             Queue::open(&dir)
                 .unwrap()
-                .stats(ai_memory_relay::now_ms())
+                .stats(estacao_ai_relay::now_ms())
                 .unwrap()
                 .receipts,
             0
@@ -2127,7 +2127,7 @@ fn old_server_and_future_outcome_strings_are_unknown() {
         queue
             .enqueue(
                 &[valid("a", "codex", "session-start", "a")],
-                ai_memory_relay::now_ms(),
+                estacao_ai_relay::now_ms(),
             )
             .unwrap();
         drop(queue);
@@ -2135,7 +2135,7 @@ fn old_server_and_future_outcome_strings_are_unknown() {
         assert_eq!(
             Queue::open(&dir)
                 .unwrap()
-                .stats(ai_memory_relay::now_ms())
+                .stats(estacao_ai_relay::now_ms())
                 .unwrap()
                 .receipt_outcomes["unknown"],
             1
@@ -2217,7 +2217,7 @@ fn every_current_outcome_is_persisted_and_flush_counts_acknowledgements() {
             &(0..known.len())
                 .map(|i| valid(&format!("e{i}"), "codex", "session-start", &format!("s{i}")))
                 .collect::<Vec<_>>(),
-            ai_memory_relay::now_ms(),
+            estacao_ai_relay::now_ms(),
         )
         .unwrap();
     drop(queue);
@@ -2226,7 +2226,7 @@ fn every_current_outcome_is_persisted_and_flush_counts_acknowledgements() {
     assert_eq!(pending_count(&dir), 0);
     let stats = Queue::open(&dir)
         .unwrap()
-        .stats(ai_memory_relay::now_ms())
+        .stats(estacao_ai_relay::now_ms())
         .unwrap();
     let summary = report
         .summary
@@ -2336,7 +2336,7 @@ fn new_native_bodies_are_sanitized_before_hash_enqueue_and_exact_retry() {
     enqueue(&dir, &root, "native.json", serde_json::json!([raw.clone()])).unwrap();
     enqueue(&dir, &root, "repeat.json", serde_json::json!([raw])).unwrap();
     assert_eq!(pending_count(&dir), 1);
-    let conn = rusqlite::Connection::open(dir.join(ai_memory_relay::fsguard::DB_FILE)).unwrap();
+    let conn = rusqlite::Connection::open(dir.join(estacao_ai_relay::fsguard::DB_FILE)).unwrap();
     let (body, digest, key, id, agent, event, session): (
         String,
         String,
@@ -2434,12 +2434,12 @@ fn new_native_bodies_are_sanitized_before_hash_enqueue_and_exact_retry() {
     assert!(serde_json::to_vec(&safe["metrics"]).unwrap() == serde_json::to_vec(&metrics).unwrap());
     assert_eq!(
         safe["output"],
-        ai_memory_client::sanitize_external_text(
+        estacao_ai_client::sanitize_external_text(
             "\u{1b}[32mresult\u{1b}[0m\u{202e} token=getToken() Bearer abcdefghijklmnop"
         )
     );
 
-    ai_memory_client::check_body(&safe).unwrap();
+    estacao_ai_client::check_body(&safe).unwrap();
     let validated = identity::validate(
         0,
         InputEvent {
@@ -2464,7 +2464,7 @@ fn new_native_bodies_are_sanitized_before_hash_enqueue_and_exact_retry() {
     assert_eq!(
         Queue::open(&dir)
             .unwrap()
-            .stats(ai_memory_relay::now_ms())
+            .stats(estacao_ai_relay::now_ms())
             .unwrap()
             .receipts,
         1
@@ -2480,12 +2480,12 @@ fn unsafe_legacy_pending_is_dropped_locally_and_never_blocks_its_session() {
     legacy.body_json = "{ \"prompt\": \"Bearer abcdefghijklmnop\", \"cwd\": \"/native/path\", \"session_id\": \"native-session\" }".into();
     let mut queue = Queue::open(&dir).unwrap();
     queue
-        .enqueue(&[legacy.clone()], ai_memory_relay::now_ms())
+        .enqueue(&[legacy.clone()], estacao_ai_relay::now_ms())
         .unwrap();
     let later = valid("later-clean", "codex", "session-end", "native-session");
     let clean = valid("clean-event", "codex", "session-start", "clean-session");
     queue
-        .enqueue(&[later.clone(), clean.clone()], ai_memory_relay::now_ms())
+        .enqueue(&[later.clone(), clean.clone()], estacao_ai_relay::now_ms())
         .unwrap();
     drop(queue);
 
@@ -2522,7 +2522,7 @@ fn unsafe_legacy_pending_is_dropped_locally_and_never_blocks_its_session() {
     assert!(ids.contains(&"clean-session"));
     assert!(ids.contains(&"native-session"));
 
-    let conn = rusqlite::Connection::open(dir.join(ai_memory_relay::fsguard::DB_FILE)).unwrap();
+    let conn = rusqlite::Connection::open(dir.join(estacao_ai_relay::fsguard::DB_FILE)).unwrap();
     let outcome: Option<String> = conn
         .query_row(
             "SELECT outcome FROM receipt WHERE ingest_key = ?1",
@@ -2688,7 +2688,10 @@ fn unsafe_legacy_native_identity_is_dropped_and_its_session_continues() {
     let mut queue = Queue::open(&dir).unwrap();
     let before = valid("before", "codex", "session-start", "clean-before");
     queue
-        .enqueue(&[legacy.clone(), before.clone()], ai_memory_relay::now_ms())
+        .enqueue(
+            &[legacy.clone(), before.clone()],
+            estacao_ai_relay::now_ms(),
+        )
         .unwrap();
     drop(queue);
     let report = flush(&dir);

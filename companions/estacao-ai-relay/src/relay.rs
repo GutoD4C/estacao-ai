@@ -96,7 +96,7 @@ pub fn init(
     identity::check_actor(actor).map_err(anyhow::Error::msg)?;
     identity::check_scope("workspace", workspace).map_err(anyhow::Error::msg)?;
     identity::check_scope("project", project).map_err(anyhow::Error::msg)?;
-    ai_memory_client::reject_sensitive(&serde_json::json!({
+    estacao_ai_client::reject_sensitive(&serde_json::json!({
         "producer": producer, "actor": actor, "server_url": server_url,
     }))?;
     let binding = Binding {
@@ -319,16 +319,16 @@ fn flush_locked(dir: &Path, options: &FlushOptions) -> Result<Report> {
         let mut unsafe_keys: Vec<(String, &str)> = Vec::new();
         for item in &batch.items {
             let wire = serde_json::from_str(&item.body_json).ok().and_then(|body| {
-                ai_memory_client::reject_sensitive(&serde_json::json!([
+                estacao_ai_client::reject_sensitive(&serde_json::json!([
                     item.event_id,
                     item.agent,
                     item.event,
                     item.session_id,
                 ]))
                 .ok()?;
-                ai_memory_client::check_body(&body).ok()?;
+                estacao_ai_client::check_body(&body).ok()?;
                 let url = http::item_url(&binding.server_url, &binding, item);
-                ai_memory_client::reject_sensitive(&serde_json::json!(url)).ok()?;
+                estacao_ai_client::reject_sensitive(&serde_json::json!(url)).ok()?;
                 Some(BatchItem { url, body })
             });
             if let Some(wire) = wire {

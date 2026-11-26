@@ -109,7 +109,7 @@ pub fn check_actor(actor: &str) -> Result<(), String> {
 
 /// Validate a workspace or project name.
 pub fn check_scope(label: &str, value: &str) -> Result<(), String> {
-    ai_memory_client::reject_sensitive(&serde_json::json!(value))
+    estacao_ai_client::reject_sensitive(&serde_json::json!(value))
         .map_err(|_| format!("unsafe --{label} rejected"))?;
     is_plain(value, MAX_SCOPE_LEN)
         .then_some(())
@@ -158,7 +158,7 @@ pub fn validate(
     actor: &str,
 ) -> Result<ValidEvent, String> {
     let at = |detail: &str| format!("item {index}: {detail}");
-    ai_memory_client::reject_sensitive(&serde_json::json!({
+    estacao_ai_client::reject_sensitive(&serde_json::json!({
         "event_id": input.event_id, "agent": input.agent, "event": input.event,
         "producer": producer, "actor": actor,
     }))
@@ -176,11 +176,11 @@ pub fn validate(
     .iter()
     .filter_map(|key| input.body.get(key))
     .collect();
-    ai_memory_client::reject_sensitive(&serde_json::json!(identities))
+    estacao_ai_client::reject_sensitive(&serde_json::json!(identities))
         .map_err(|_| at("unsafe body identity rejected"))?;
-    ai_memory_client::sanitize_external_value(&mut input.body)
+    estacao_ai_client::sanitize_external_value(&mut input.body)
         .map_err(|_| at("unsafe hook body rejected"))?;
-    ai_memory_client::check_body(&input.body).map_err(|_| at("unsafe hook body rejected"))?;
+    estacao_ai_client::check_body(&input.body).map_err(|_| at("unsafe hook body rejected"))?;
     if !is_plain(&input.event_id, MAX_EVENT_ID_LEN) {
         return Err(at(&format!(
             "event_id must be 1..={MAX_EVENT_ID_LEN} printable characters"

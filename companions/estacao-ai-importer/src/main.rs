@@ -6,9 +6,9 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
-use ai_memory_client::sanitize_external_text;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
+use estacao_ai_client::sanitize_external_text;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -548,7 +548,7 @@ fn plan_external_conversation(
     server_url: &str,
 ) -> Result<ConversationPlan> {
     validate_label(workspace, "workspace", 128)?;
-    ai_memory_client::reject_sensitive(&serde_json::json!([
+    estacao_ai_client::reject_sensitive(&serde_json::json!([
         workspace,
         server_url,
         file.to_string_lossy().as_ref()
@@ -569,7 +569,7 @@ fn plan_external_conversation(
     let mut envelope: ConversationEnvelope = serde_json::from_slice(&bytes)
         .map_err(|_| anyhow!("parse generic conversation JSON: invalid schema"))?;
 
-    ai_memory_client::reject_sensitive(&serde_json::json!({
+    estacao_ai_client::reject_sensitive(&serde_json::json!({
         "project": envelope.project, "source": envelope.source, "session_id": envelope.session_id,
     }))?;
     envelope.project = validate_label(&envelope.project, "project", 128)?.to_owned();
@@ -738,14 +738,14 @@ fn planned_hook_event(
     source_event: Option<&str>,
     mut body: serde_json::Value,
 ) -> Result<PlannedHookEvent> {
-    ai_memory_client::reject_sensitive(
+    estacao_ai_client::reject_sensitive(
         &serde_json::json!({"session_id": stable_session_id, "event": event, "source_event": source_event}),
     )?;
     if let Some(id) = body.get("session_id") {
-        ai_memory_client::reject_sensitive(id)?;
+        estacao_ai_client::reject_sensitive(id)?;
     }
-    ai_memory_client::sanitize_external_value(&mut body)?;
-    ai_memory_client::check_body(&body)?;
+    estacao_ai_client::sanitize_external_value(&mut body)?;
+    estacao_ai_client::check_body(&body)?;
     let body_bytes = serde_json::to_vec(&body)?;
     let ingest_key = event_ingest_key(stable_session_id, index, event, &body_bytes);
     let url = build_hook_url(
@@ -757,7 +757,7 @@ fn planned_hook_event(
         &ingest_key,
         source_event,
     )?;
-    ai_memory_client::reject_sensitive(&serde_json::json!(url))?;
+    estacao_ai_client::reject_sensitive(&serde_json::json!(url))?;
     Ok(PlannedHookEvent {
         index,
         event: event.to_owned(),
@@ -1444,8 +1444,8 @@ impl ImportClient {
 
     async fn post_hook_batch(&self, events: &[PlannedHookEvent]) -> Result<HookBatchDelivery> {
         for event in events {
-            ai_memory_client::check_body(&event.body)?;
-            ai_memory_client::reject_sensitive(&serde_json::json!(event.url))?;
+            estacao_ai_client::check_body(&event.body)?;
+            estacao_ai_client::reject_sensitive(&serde_json::json!(event.url))?;
         }
         let items: Vec<_> = events
             .iter()
@@ -2176,7 +2176,7 @@ mod tests {
                 == serde_json::to_vec(&raw["metrics"]).unwrap()
         );
         assert!(!serialized.contains("abcdefghijklmnop"));
-        ai_memory_client::check_body(&event.body).unwrap();
+        estacao_ai_client::check_body(&event.body).unwrap();
         let expected = event.body.clone();
         let server = thread::spawn(move || {
             let mut bodies = Vec::new();
@@ -2220,7 +2220,7 @@ mod tests {
             let file = write_conversation(root, source);
             let plan = plan_external_conversation(&file, "w", DEFAULT_SERVER_URL).unwrap();
             for event in &plan.events {
-                ai_memory_client::check_body(&event.body).unwrap();
+                estacao_ai_client::check_body(&event.body).unwrap();
                 for field in ["prompt", "message", "title"] {
                     if let Some(text) = event.body[field].as_str() {
                         assert!(!text.contains("abcdefghijklmnop"));
@@ -2395,6 +2395,6 @@ mod tests {
                 "forged body authority must be refused before POST"
             );
         }
-        ai_memory_client::check_body(&clean.body).unwrap();
+        estacao_ai_client::check_body(&clean.body).unwrap();
     }
 }
