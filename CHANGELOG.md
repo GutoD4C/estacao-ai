@@ -8,6 +8,17 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.3] — 2026-11-25
+
+### Added
+
+- **Gestão completa de Memória dos Projetos (`/web/projetos`)**: adicionados endpoints protegidos (`GET /estacao/api/memorias/inspecionar`, `POST /estacao/api/memorias/exportar`, `POST /estacao/api/memorias/importar` com limite de 16 MiB e `Acao::ExcluirMemoria`) e interface completa com seleção total ou individual, exportação em pacote portátil `estacao-ai-memoria-v1` (`.json`), importação seletiva com pré-visualização por projeto (modos **Mesclar** e **Substituir**), inspeção detalhada de páginas e sessões e exclusão individual com proteção da memória global (`default/_global`).
+- **Documentação ampliada no `README.md`**: nova seção **Novas versões** logo no início do README e guia detalhado explicando para que serve e como utilizar todas as funções da Estação I.A (incluindo Memória dos Projetos, Chats/Chalé 3D, Projetos 2D, Modelos de IA, Consumo e Nostr).
+
+### Fixed
+
+- **Detecção do Codex CLI e ferramentas no Windows**: ampliado o `caminho_busca()` em `estacao/processo.rs` para incluir `USERPROFILE`/`LOCALAPPDATA`/`APPDATA`/`ProgramFiles`, `WindowsApps` (aliases MSIX com reparse point) e `CODEX_HOME` no catálogo e painel de consumo; corrigida a resolução de `codex` e normalização `\\?\` em `codex_hook_trust` (`doctor`/`setup`), e evitado que falhas transitórias em `carregarCatalogo()` deixem a lista de ferramentas presa em `[]`.
+
 ## [1.7.2] — 2026-11-25
 
 ### Security

@@ -1,22 +1,46 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use ai_memory_core::{ActorContext, PagePath, Tier, UserId};
+use ai_memory_store::{Compaction, PurgeMode, ScopeResolutionError, StoreError};
+use ai_memory_wiki::{AdmissionContext, AdmissionOp, WritePageRequest};
 use axum::Json;
-use axum::extract::Path as UrlPath;
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::response::Response;
-use serde::Serialize;
+use axum::extract::{Path as UrlPath, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use serde::{Deserialize, Serialize};
 
 use super::estado::{
-    Agente, Estacao, Estado, Mensagem, Projeto, Tarefa, eh_conversa, estacao, papel,
+    Agente, Estacao, Estado, Mensagem, Projeto, Tarefa, agora, eh_conversa, estacao, papel,
 };
+use super::http::autorizar;
 use super::processo::expandir_home;
 use crate::state::WebState;
 
 /// Caracteres por mensagem do histórico no prompt (CLIs com `"$(cat)"` têm limite de argumento).
 pub(super) const MAX_HISTORICO: usize = 3_000;
+const ESCOPO_GLOBAL: &str = "default/_global";
+const FORMATO_PACOTE_MEMORIA: &str = "estacao-ai-memoria-v1";
+
+pub(super) fn parse_escopo(escopo: &str) -> Result<(&str, &str), String> {
+    let limpo = escopo.trim();
+    let Some((ws, proj)) = limpo.split_once('/') else {
+        return Err("Escopo de memória inválido (esperado workspace/projeto).".into());
+    };
+    if ws.is_empty()
+        || proj.is_empty()
+        || proj.contains('/')
+        || ws.contains(['\n', '\r', '\0', '\\', '"'])
+        || proj.contains(['\n', '\r', '\0', '\\', '"'])
+        || ws == "."
+        || ws == ".."
+        || proj == "."
+        || proj == ".."
+    {
+        return Err("Escopo de memória inválido.".into());
+    }
+    Ok((ws, proj))
+}
 
 pub(super) async fn vincular_pasta(est: Arc<Estacao>, projeto_id: &str) -> Result<(), String> {
     let p = {
@@ -29,16 +53,8 @@ pub(super) async fn vincular_pasta(est: Arc<Estacao>, projeto_id: &str) -> Resul
     if pasta_txt.is_empty() {
         return Err("Configure a pasta do projeto antes de gravar o .estacao-ai.toml.".into());
     }
-    let Some((ws, proj)) = p.memoria.split_once('/') else {
-        return Err("Selecione uma memória ligada (workspace/projeto) primeiro.".into());
-    };
-    if ws.is_empty()
-        || proj.is_empty()
-        || ws.contains(['\n', '\r', '"'])
-        || proj.contains(['\n', '\r', '"'])
-    {
-        return Err("Escopo de memória inválido.".into());
-    }
+    let (ws, proj) = parse_escopo(&p.memoria)
+        .map_err(|_| "Selecione uma memória ligada (workspace/projeto) primeiro.".to_owned())?;
     let pasta = expandir_home(pasta_txt);
     if !pasta.is_dir() {
         return Err(format!("Pasta não encontrada: {}", pasta.display()));
@@ -610,4 +626,765 @@ pub(crate) async fn api_estante(
         Json(EstanteResposta { livros }),
     )
         .into_response()
+}
+
+// ------------------------------------------------ gestão (inspecionar, exportar, importar, excluir)
+
+#[derive(Deserialize)]
+pub(crate) struct InspecionarQuery {
+    escopo: String,
+}
+
+#[derive(Serialize)]
+struct PaginaInspecionada {
+    path: String,
+    title: String,
+    tier: String,
+    kind: String,
+    pinned: bool,
+    resumo: String,
+    body: String,
+    updated_at: i64,
+}
+
+#[derive(Serialize)]
+struct SessaoInspecionada {
+    id: String,
+    agent_kind: String,
+    started_at: i64,
+    ended: bool,
+    cwd: String,
+}
+
+#[derive(Serialize)]
+struct ProjetoVinculadoResumo {
+    id: String,
+    nome: String,
+}
+
+#[derive(Serialize)]
+struct InspecionarMemoriaResposta {
+    escopo: String,
+    pasta: String,
+    tem_toml: bool,
+    oculta: bool,
+    projetos_vinculados: Vec<ProjetoVinculadoResumo>,
+    total_paginas: u64,
+    total_sessoes: u64,
+    abertas: u64,
+    paginas: Vec<PaginaInspecionada>,
+    sessoes: Vec<SessaoInspecionada>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ExportarMemoriasReq {
+    #[serde(default)]
+    escopos: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct PacoteMemoria {
+    pub versao: u32,
+    pub formato: String,
+    #[serde(default)]
+    pub exportado_em: i64,
+    #[serde(default)]
+    pub versao_app: String,
+    pub projetos: Vec<MemoriaExportada>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct MemoriaExportada {
+    pub escopo: String,
+    #[serde(default)]
+    pub pasta: String,
+    #[serde(default)]
+    pub sessoes_registradas: u64,
+    pub paginas: Vec<PaginaExportada>,
+}
+
+fn tier_semantic() -> String {
+    "semantic".into()
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct PaginaExportada {
+    pub path: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default = "tier_semantic")]
+    pub tier: String,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub frontmatter: serde_json::Value,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ImportarMemoriasReq {
+    pacote: PacoteMemoria,
+    #[serde(default)]
+    selecionar: Vec<String>,
+    #[serde(default)]
+    modo: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DetalheImportacao {
+    escopo: String,
+    paginas: usize,
+    substituida: bool,
+}
+
+#[derive(Serialize)]
+struct ImportarMemoriasResposta {
+    projetos_importados: usize,
+    paginas_importadas: usize,
+    detalhes: Vec<DetalheImportacao>,
+}
+
+struct PaginaArmazenada {
+    path: String,
+    title: String,
+    tier: String,
+    kind: String,
+    pinned: bool,
+    frontmatter: serde_json::Value,
+    body: String,
+    updated_at: i64,
+}
+
+struct EscopoDetalhe {
+    paginas: Vec<PaginaArmazenada>,
+    sessoes: Vec<SessaoInspecionada>,
+    total_paginas: u64,
+    total_sessoes: u64,
+    abertas: u64,
+    pasta: String,
+}
+
+fn kind_da_pagina(path: &str, frontmatter: &serde_json::Value) -> String {
+    if let Some(k) = frontmatter.get("kind").and_then(|v| v.as_str()) {
+        let limpo = k.trim();
+        if !limpo.is_empty() {
+            return limpo.to_owned();
+        }
+    }
+    if path.starts_with("_rules/") {
+        "rule".into()
+    } else if path.starts_with("decisions/") {
+        "decision".into()
+    } else if path.starts_with("gotchas/") {
+        "gotcha".into()
+    } else if path.starts_with("concepts/") {
+        "concept".into()
+    } else if path.starts_with("procedures/") {
+        "procedure".into()
+    } else if path.starts_with("sessions/") {
+        "session".into()
+    } else if path.starts_with("_lint/") {
+        "lint".into()
+    } else {
+        "note".into()
+    }
+}
+
+fn classificar_erro_escopo(err: ScopeResolutionError, escopo: &str) -> (StatusCode, String) {
+    match err {
+        ScopeResolutionError::WorkspaceNotFound { .. }
+        | ScopeResolutionError::ProjectNotFoundInWorkspace { .. } => (
+            StatusCode::NOT_FOUND,
+            format!("Memória não encontrada: {escopo}"),
+        ),
+        ScopeResolutionError::Forbidden(_) => (
+            StatusCode::FORBIDDEN,
+            "Sem permissão para acessar esta memória.".into(),
+        ),
+        other => (
+            StatusCode::BAD_REQUEST,
+            format!("Falha ao resolver memória {escopo}: {other}"),
+        ),
+    }
+}
+
+async fn resolver_escopo_leitura(
+    state: &WebState,
+    uid: Option<UserId>,
+    ws: &str,
+    proj: &str,
+    escopo: &str,
+) -> Result<ai_memory_store::ResolvedScope, (StatusCode, String)> {
+    crate::routes::resolve_read_scope(state, uid, ws, proj)
+        .await
+        .map_err(|e| classificar_erro_escopo(e, escopo))
+}
+
+async fn ler_escopo_detalhado(
+    state: &WebState,
+    scope: ai_memory_store::ResolvedScope,
+    limite_paginas: usize,
+    limite_sessoes: usize,
+) -> Result<EscopoDetalhe, String> {
+    let (w, p) = (scope.workspace_id, scope.project_id);
+    state
+        .reader
+        .with_conn(move |conn| {
+            let total_paginas: u64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pages WHERE workspace_id=?1 AND project_id=?2 AND is_latest=1",
+                    rusqlite::params![w.as_bytes(), p.as_bytes()],
+                    |r| Ok(r.get::<_, i64>(0)?.max(0) as u64),
+                )
+                .unwrap_or(0);
+            let total_sessoes: u64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE workspace_id=?1 AND project_id=?2",
+                    rusqlite::params![w.as_bytes(), p.as_bytes()],
+                    |r| Ok(r.get::<_, i64>(0)?.max(0) as u64),
+                )
+                .unwrap_or(0);
+            let abertas: u64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE workspace_id=?1 AND project_id=?2 AND ended_at IS NULL",
+                    rusqlite::params![w.as_bytes(), p.as_bytes()],
+                    |r| Ok(r.get::<_, i64>(0)?.max(0) as u64),
+                )
+                .unwrap_or(0);
+            let pasta: String = conn
+                .query_row(
+                    "SELECT cwd FROM sessions WHERE workspace_id=?1 AND project_id=?2 AND cwd IS NOT NULL ORDER BY started_at DESC LIMIT 1",
+                    rusqlite::params![w.as_bytes(), p.as_bytes()],
+                    |r| r.get::<_, String>(0),
+                )
+                .unwrap_or_default();
+
+            let mut stmt_p = conn.prepare(
+                "SELECT path, COALESCE(title, path), tier, pinned, COALESCE(frontmatter_json, '{}'), COALESCE(body, ''), updated_at \
+                 FROM pages \
+                 WHERE workspace_id=?1 AND project_id=?2 AND is_latest=1 \
+                 ORDER BY pinned DESC, updated_at DESC, path ASC \
+                 LIMIT ?3",
+            )?;
+            let paginas = stmt_p
+                .query_map(
+                    rusqlite::params![w.as_bytes(), p.as_bytes(), limite_paginas as i64],
+                    |r| {
+                        let path: String = r.get(0)?;
+                        let fm_raw: String = r.get(4)?;
+                        let frontmatter = serde_json::from_str::<serde_json::Value>(&fm_raw)
+                            .unwrap_or(serde_json::Value::Null);
+                        let kind = kind_da_pagina(&path, &frontmatter);
+                        Ok(PaginaArmazenada {
+                            path,
+                            title: r.get(1)?,
+                            tier: r.get(2)?,
+                            kind,
+                            pinned: r.get::<_, i64>(3)? != 0,
+                            frontmatter,
+                            body: r.get(5)?,
+                            updated_at: r.get(6)?,
+                        })
+                    },
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let mut stmt_s = conn.prepare(
+                "SELECT LOWER(HEX(id)), agent_kind, started_at, ended_at IS NOT NULL, COALESCE(cwd, '') \
+                 FROM sessions \
+                 WHERE workspace_id=?1 AND project_id=?2 \
+                 ORDER BY started_at DESC LIMIT ?3",
+            )?;
+            let sessoes = stmt_s
+                .query_map(
+                    rusqlite::params![w.as_bytes(), p.as_bytes(), limite_sessoes as i64],
+                    |r| {
+                        Ok(SessaoInspecionada {
+                            id: r.get(0)?,
+                            agent_kind: r.get(1)?,
+                            started_at: r.get(2)?,
+                            ended: r.get::<_, i64>(3)? != 0,
+                            cwd: r.get(4)?,
+                        })
+                    },
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            Ok(EscopoDetalhe {
+                paginas,
+                sessoes,
+                total_paginas,
+                total_sessoes,
+                abertas,
+                pasta,
+            })
+        })
+        .await
+        .map_err(|e| format!("Falha ao consultar memória: {e}"))
+}
+
+/// Inspeciona detalhadamente páginas e sessões de uma memória de projeto.
+pub(crate) async fn api_inspecionar_memoria(
+    State(state): State<Arc<WebState>>,
+    viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
+    Query(query): Query<InspecionarQuery>,
+) -> Response {
+    let escopo = query.escopo.trim().to_owned();
+    let (ws, proj) = match parse_escopo(&escopo) {
+        Ok(par) => par,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let uid = viewer.map(|v| v.0.user());
+    let resolved = match resolver_escopo_leitura(&state, uid, ws, proj, &escopo).await {
+        Ok(s) => s,
+        Err((status, msg)) => return (status, msg).into_response(),
+    };
+    let detalhe = match ler_escopo_detalhado(&state, resolved, 500, 20).await {
+        Ok(d) => d,
+        Err(msg) => return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+    };
+    let (projetos_vinculados, oculta, tem_toml_vinculado) = {
+        let est_ref = estacao(&state);
+        let e = est_ref.estado.lock().await;
+        let vinculados: Vec<ProjetoVinculadoResumo> = e
+            .projetos
+            .iter()
+            .filter(|p| p.memoria == escopo)
+            .map(|p| ProjetoVinculadoResumo {
+                id: p.id.clone(),
+                nome: p.nome.clone(),
+            })
+            .collect();
+        let tem_toml = e
+            .projetos
+            .iter()
+            .filter(|p| p.memoria == escopo && !p.pasta.trim().is_empty())
+            .any(|p| {
+                expandir_home(p.pasta.trim())
+                    .join(".estacao-ai.toml")
+                    .is_file()
+            });
+        (vinculados, e.memorias_ocultas.contains(&escopo), tem_toml)
+    };
+    let tem_toml = tem_toml_vinculado
+        || (!detalhe.pasta.trim().is_empty()
+            && expandir_home(detalhe.pasta.trim())
+                .join(".estacao-ai.toml")
+                .is_file());
+    let paginas = detalhe
+        .paginas
+        .into_iter()
+        .map(|pg| PaginaInspecionada {
+            resumo: resumir_corpo(&pg.body, 220),
+            path: pg.path,
+            title: pg.title,
+            tier: pg.tier,
+            kind: pg.kind,
+            pinned: pg.pinned,
+            body: pg.body,
+            updated_at: pg.updated_at,
+        })
+        .collect();
+    (
+        [("cache-control", "no-store")],
+        Json(InspecionarMemoriaResposta {
+            escopo,
+            pasta: detalhe.pasta,
+            tem_toml,
+            oculta,
+            projetos_vinculados,
+            total_paginas: detalhe.total_paginas,
+            total_sessoes: detalhe.total_sessoes,
+            abertas: detalhe.abertas,
+            paginas,
+            sessoes: detalhe.sessoes,
+        }),
+    )
+        .into_response()
+}
+
+/// Exporta uma ou várias memórias selecionadas em formato portátil `estacao-ai-memoria-v1`.
+pub(crate) async fn api_exportar_memorias(
+    axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
+    State(state): State<Arc<WebState>>,
+    level: Option<axum::Extension<ai_memory_core::AuthLevel>>,
+    viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
+    headers: HeaderMap,
+    Json(req): Json<ExportarMemoriasReq>,
+) -> Response {
+    if let Err(recusa) = autorizar(&i18n, &state, level, &headers).await {
+        return recusa;
+    }
+    let mut vistoria = HashSet::new();
+    let mut alvos = Vec::new();
+    for raw in req.escopos {
+        let limpo = raw.trim().to_owned();
+        if !limpo.is_empty() && vistoria.insert(limpo.clone()) {
+            alvos.push(limpo);
+        }
+    }
+    if alvos.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Selecione ao menos uma memória para exportar.",
+        )
+            .into_response();
+    }
+    let uid = viewer.map(|v| v.0.user());
+    let mut projetos = Vec::with_capacity(alvos.len());
+    for escopo in alvos {
+        let (ws, proj) = match parse_escopo(&escopo) {
+            Ok(par) => par,
+            Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+        };
+        let resolved = match resolver_escopo_leitura(&state, uid, ws, proj, &escopo).await {
+            Ok(s) => s,
+            Err((status, msg)) => return (status, msg).into_response(),
+        };
+        let detalhe = match ler_escopo_detalhado(&state, resolved, 10_000, 1).await {
+            Ok(d) => d,
+            Err(msg) => return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+        };
+        let paginas = detalhe
+            .paginas
+            .into_iter()
+            .map(|pg| PaginaExportada {
+                path: pg.path,
+                title: pg.title,
+                tier: pg.tier,
+                pinned: pg.pinned,
+                frontmatter: pg.frontmatter,
+                body: pg.body,
+                updated_at: pg.updated_at,
+            })
+            .collect();
+        projetos.push(MemoriaExportada {
+            escopo,
+            pasta: detalhe.pasta,
+            sessoes_registradas: detalhe.total_sessoes,
+            paginas,
+        });
+    }
+    Json(PacoteMemoria {
+        versao: 1,
+        formato: FORMATO_PACOTE_MEMORIA.into(),
+        exportado_em: agora(),
+        versao_app: env!("CARGO_PKG_VERSION").into(),
+        projetos,
+    })
+    .into_response()
+}
+
+// Operações explícitas de gestão de memória da Estação-ai, protegidas por
+// sessão Nostr (`exigir_sessao`), CSRF/Origin (`X-Estacao-UI`) e `require_admin`.
+#[allow(clippy::disallowed_methods)]
+async fn purgar_escopo(
+    state: &WebState,
+    resolved: ai_memory_store::ResolvedScope,
+    escopo: &str,
+    uid: Option<UserId>,
+    actor: &ActorContext,
+) -> Result<ai_memory_store::PurgeSummary, String> {
+    let (ws, proj) = parse_escopo(escopo)?;
+    let purge_ctx = AdmissionContext {
+        workspace: ws.to_owned(),
+        project: proj.to_owned(),
+        op: AdmissionOp::PurgeProject,
+        actor: actor.clone(),
+        ..Default::default()
+    };
+    state
+        .wiki
+        .admit_purge_project(resolved.workspace_id, resolved.project_id, Some(purge_ctx))
+        .await
+        .map_err(|e| format!("Exclusão bloqueada pela política da wiki: {e}"))?;
+    let summary = state
+        .wiki
+        .writer()
+        .purge_project(
+            resolved.workspace_id,
+            resolved.project_id,
+            escopo,
+            uid,
+            false,
+            Compaction::Skip,
+            PurgeMode::Commit,
+        )
+        .await
+        .map_err(|e| match e {
+            StoreError::ManagedRunActive { .. } => {
+                "Há uma execução ativa vinculada a esta memória; aguarde terminar antes de excluir."
+                    .to_owned()
+            }
+            other => format!("Não consegui excluir a memória {escopo}: {other}"),
+        })?;
+    if let Err(e) = state
+        .wiki
+        .remove_project_dir(resolved.workspace_id, resolved.project_id)
+        .await
+    {
+        tracing::warn!(erro = %e, escopo, "falha parcial ao limpar diretório wiki após exclusão no banco");
+    }
+    Ok(summary)
+}
+
+/// Exclui permanentemente a memória de um projeto e desvincula projetos locais que apontavam para ela.
+pub(super) async fn excluir_memoria(
+    state: &WebState,
+    est: Arc<Estacao>,
+    escopo: &str,
+    uid: Option<UserId>,
+    actor: ActorContext,
+) -> Result<Option<String>, String> {
+    let limpo = escopo.trim();
+    if limpo == ESCOPO_GLOBAL {
+        return Err("A memória global (default/_global) não pode ser excluída.".into());
+    }
+    let (ws, proj) = parse_escopo(limpo)?;
+    let resolved = resolver_escopo_leitura(state, uid, ws, proj, limpo)
+        .await
+        .map_err(|(_, msg)| msg)?;
+    let summary = purgar_escopo(state, resolved, limpo, uid, &actor).await?;
+    est.mudar(|e| {
+        e.memorias_ocultas.retain(|x| x != limpo);
+        for p in &mut e.projetos {
+            if p.memoria == limpo {
+                p.memoria.clear();
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(Some(format!(
+        "Memória {limpo} excluída ({} página(s), {} sessão(ões)).",
+        summary.pages_deleted, summary.sessions_deleted
+    )))
+}
+
+struct PaginaValidada {
+    path: PagePath,
+    tier: Tier,
+    pinned: bool,
+    title: Option<String>,
+    frontmatter: serde_json::Value,
+    body: String,
+}
+
+struct ProjetoImportadoValidado {
+    escopo: String,
+    ws: String,
+    proj: String,
+    pasta: Option<String>,
+    paginas: Vec<PaginaValidada>,
+}
+
+fn validar_lote_importacao(
+    req: ImportarMemoriasReq,
+) -> Result<(Vec<ProjetoImportadoValidado>, bool), String> {
+    if req.pacote.formato != FORMATO_PACOTE_MEMORIA || req.pacote.versao != 1 {
+        return Err(
+            "Arquivo de backup inválido ou versão incompatível (esperado estacao-ai-memoria-v1)."
+                .into(),
+        );
+    }
+    let substituir = match req.modo.as_deref() {
+        None | Some("") | Some("mesclar") => false,
+        Some("substituir") => true,
+        Some(_) => {
+            return Err("Modo de importação inválido (use 'mesclar' ou 'substituir').".into());
+        }
+    };
+    let filtro: Option<HashSet<String>> = (!req.selecionar.is_empty()).then(|| {
+        req.selecionar
+            .into_iter()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+    let mut vistos = HashSet::new();
+    let mut validados = Vec::new();
+    for item in req.pacote.projetos {
+        let escopo = item.escopo.trim().to_owned();
+        if let Some(ref f) = filtro
+            && !f.contains(&escopo)
+        {
+            continue;
+        }
+        if !vistos.insert(escopo.clone()) {
+            continue;
+        }
+        let (ws, proj) = {
+            let (w, p) = parse_escopo(&escopo)?;
+            (w.to_owned(), p.to_owned())
+        };
+        if substituir && escopo == ESCOPO_GLOBAL {
+            return Err(
+                "O modo Substituir não é permitido em default/_global; use Mesclar.".into(),
+            );
+        }
+        let mut paginas = Vec::with_capacity(item.paginas.len());
+        for pg in item.paginas {
+            let path = PagePath::new(pg.path.trim())
+                .map_err(|e| format!("Caminho inválido em {escopo} ({}): {e}", pg.path))?;
+            path.ensure_portable()
+                .map_err(|e| format!("Caminho não portátil em {escopo} ({}): {e}", pg.path))?;
+            let tier_raw = pg.tier.trim();
+            let tier = if tier_raw.is_empty() {
+                Tier::Semantic
+            } else {
+                tier_raw
+                    .parse::<Tier>()
+                    .map_err(|e| format!("Tier inválido em {escopo} ({}): {e}", pg.path))?
+            };
+            let mut fm = match pg.frontmatter {
+                serde_json::Value::Object(mut map) => {
+                    map.remove("last_modified_by");
+                    serde_json::Value::Object(map)
+                }
+                _ => serde_json::Value::Null,
+            };
+            if let serde_json::Value::Object(ref mut map) = fm {
+                map.remove("path");
+            }
+            let title = (!pg.title.trim().is_empty()).then(|| pg.title.trim().to_owned());
+            paginas.push(PaginaValidada {
+                path,
+                tier,
+                pinned: pg.pinned,
+                title,
+                frontmatter: fm,
+                body: pg.body,
+            });
+        }
+        let pasta = (!item.pasta.trim().is_empty()).then(|| item.pasta.trim().to_owned());
+        validados.push(ProjetoImportadoValidado {
+            escopo,
+            ws,
+            proj,
+            pasta,
+            paginas,
+        });
+    }
+    if validados.is_empty() {
+        return Err("Nenhuma memória selecionada para importar.".into());
+    }
+    Ok((validados, substituir))
+}
+
+/// Importa memórias (seleção total ou parcial de projetos) para SQLite e arquivos Markdown da wiki.
+#[allow(clippy::disallowed_methods)]
+pub(crate) async fn api_importar_memorias(
+    axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
+    State(state): State<Arc<WebState>>,
+    level: Option<axum::Extension<ai_memory_core::AuthLevel>>,
+    viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
+    actor_ext: Option<axum::Extension<ActorContext>>,
+    headers: HeaderMap,
+    Json(req): Json<ImportarMemoriasReq>,
+) -> Response {
+    if let Err(recusa) = autorizar(&i18n, &state, level, &headers).await {
+        return recusa;
+    }
+    let (itens, substituir) = match validar_lote_importacao(req) {
+        Ok(par) => par,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let uid = viewer.map(|v| v.0.user());
+    let actor = actor_ext
+        .map(|axum::Extension(a)| a)
+        .unwrap_or_else(ActorContext::anonymous);
+
+    let mut detalhes = Vec::with_capacity(itens.len());
+    let mut total_paginas = 0usize;
+    let mut importados = Vec::with_capacity(itens.len());
+
+    for item in itens {
+        let mut substituida = false;
+        if substituir
+            && let Ok(existing) =
+                crate::routes::resolve_read_scope(&state, uid, &item.ws, &item.proj).await
+        {
+            if let Err(msg) = purgar_escopo(&state, existing, &item.escopo, uid, &actor).await {
+                return (StatusCode::CONFLICT, msg).into_response();
+            }
+            substituida = true;
+        }
+        let ws_id = match state.wiki.writer().get_or_create_workspace(&item.ws).await {
+            Ok(id) => id,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Falha ao preparar workspace {}: {e}", item.ws),
+                )
+                    .into_response();
+            }
+        };
+        let (proj_id, _) = match state
+            .wiki
+            .writer()
+            .get_or_create_project_as(ws_id, &item.proj, item.pasta, uid)
+            .await
+        {
+            Ok(res) => res,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Falha ao preparar projeto {}: {e}", item.escopo),
+                )
+                    .into_response();
+            }
+        };
+        let mut gravadas = 0usize;
+        for pg in item.paginas {
+            if let Err(e) = state
+                .wiki
+                .write_page(WritePageRequest {
+                    workspace_id: ws_id,
+                    project_id: proj_id,
+                    path: pg.path,
+                    frontmatter: pg.frontmatter,
+                    body: pg.body,
+                    tier: pg.tier,
+                    pinned: pg.pinned,
+                    title: pg.title,
+                    admission_ctx: None,
+                    author_id: uid,
+                    evidence: Vec::new(),
+                    actor: actor.clone(),
+                })
+                .await
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Erro ao importar página de {}: {e}", item.escopo),
+                )
+                    .into_response();
+            }
+            gravadas += 1;
+        }
+        total_paginas += gravadas;
+        importados.push(item.escopo.clone());
+        detalhes.push(DetalheImportacao {
+            escopo: item.escopo,
+            paginas: gravadas,
+            substituida,
+        });
+    }
+
+    let _ = estacao(&state)
+        .mudar(|e| {
+            e.memorias_ocultas.retain(|x| !importados.contains(x));
+            Ok(())
+        })
+        .await;
+
+    Json(ImportarMemoriasResposta {
+        projetos_importados: detalhes.len(),
+        paginas_importadas: total_paginas,
+        detalhes,
+    })
+    .into_response()
 }

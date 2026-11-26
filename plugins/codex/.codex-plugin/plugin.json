@@ -1,6 +1,6 @@
 {
   "name": "estacao-ai",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Long-term memory across sessions and harnesses, backed by the installed estacao-ai binary (3.0 or later) and your estacao-ai server. No telemetry. Codex runs the hooks only after you trust them in /hooks.",
   "author": {
     "name": "AkitaOnRails",

@@ -20,7 +20,7 @@ use super::estado::{
 use super::execucao::{
     avaliar_com_mediador, enviar, executar_tarefa, iniciar_debate, verificar_ideias,
 };
-use super::memoria::vincular_pasta;
+use super::memoria::{excluir_memoria, vincular_pasta};
 use super::processo::{TEMPO_MAXIMO, cli_encontrada, executar_comando, paradas, parar_execucoes};
 use crate::state::WebState;
 
@@ -259,6 +259,10 @@ pub(crate) enum Acao {
         escopo: String,
         ocultar: bool,
     },
+    /// Exclui permanentemente toda a memória (páginas, sessões e arquivos wiki) de um escopo de projeto.
+    ExcluirMemoria {
+        escopo: String,
+    },
     /// Participantes falam em sequência sobre `tema`, por `rodadas` voltas.
     Debate {
         projeto: String,
@@ -370,6 +374,8 @@ pub(crate) async fn api_acao(
     axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
     State(state): State<Arc<WebState>>,
     level: Option<axum::Extension<ai_memory_core::AuthLevel>>,
+    viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
+    actor: Option<axum::Extension<ai_memory_core::ActorContext>>,
     headers: HeaderMap,
     Json(acao): Json<Acao>,
 ) -> Response {
@@ -657,6 +663,18 @@ pub(crate) async fn api_acao(
                 }
                 Ok(None)
             })
+            .await
+        }
+        Acao::ExcluirMemoria { escopo } => {
+            excluir_memoria(
+                &state,
+                est,
+                &escopo,
+                viewer.map(|v| v.0.user()),
+                actor
+                    .map(|axum::Extension(a)| a)
+                    .unwrap_or_else(ai_memory_core::ActorContext::anonymous),
+            )
             .await
         }
         Acao::AutoConfigurar { grupo, quantidades } => {

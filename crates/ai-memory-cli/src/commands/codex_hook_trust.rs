@@ -8,7 +8,8 @@
 //! shows the symptom. Codex itself is the authority on the hash, so this asks
 //! it — `codex app-server`'s `hooks/list` — instead of re-deriving it.
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -57,6 +58,61 @@ pub(crate) enum HookSource<'a> {
     File(&'a Path),
     /// The hooks of the installed plugin with this id (#1166).
     Plugin(&'a str),
+}
+
+/// Locate `codex` across `PATH` and standard native install directories (for
+/// Windows desktop/service hosts where `OpenAI/Codex/bin` or `npm` may sit
+/// outside the inherited service `PATH`).
+pub(crate) fn resolve_codex_binary_with(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    let candidates: &[&str] = if cfg!(windows) {
+        &["codex.exe", "codex.cmd", "codex.bat", "codex"]
+    } else {
+        &["codex"]
+    };
+    if let Some(path_var) = env("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            for bin in candidates {
+                let p = dir.join(bin);
+                if p.is_file() {
+                    return p;
+                }
+            }
+        }
+    }
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for key in ["USERPROFILE", "HOME"] {
+        if let Some(home) = env(key).map(PathBuf::from) {
+            dirs.push(home.join(".local").join("bin"));
+            dirs.push(home.join(".npm-global").join("bin"));
+            if cfg!(windows) {
+                dirs.push(home.join(r"AppData\Local\Programs\OpenAI\Codex\bin"));
+                dirs.push(home.join(r"AppData\Roaming\npm"));
+            }
+        }
+    }
+    if cfg!(windows) {
+        if let Some(local) = env("LOCALAPPDATA").map(PathBuf::from) {
+            dirs.push(local.join(r"Programs\OpenAI\Codex\bin"));
+            dirs.push(local.join(r"Programs\OpenAI\Codex\resources\bin"));
+        }
+        if let Some(roaming) = env("APPDATA").map(PathBuf::from) {
+            dirs.push(roaming.join("npm"));
+        }
+        for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(pf) = env(key).map(PathBuf::from) {
+                dirs.push(pf.join(r"OpenAI\Codex\bin"));
+            }
+        }
+    }
+    for dir in dirs {
+        for bin in candidates {
+            let p = dir.join(bin);
+            if p.is_file() {
+                return p;
+            }
+        }
+    }
+    PathBuf::from("codex")
 }
 
 /// Ask `codex` (the program at `program`) for the trust state of the
@@ -134,6 +190,13 @@ async fn list_hooks(program: &Path, cwd: &Path) -> Option<serde_json::Value> {
     None
 }
 
+fn strip_verbatim(path: &Path) -> &Path {
+    match path.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) => Path::new(rest),
+        None => path,
+    }
+}
+
 /// The trust state of the estacao-ai hooks `source` names, from a
 /// `hooks/list` result. A hooks-file hook is estacao-ai's when its command runs
 /// `estacao-ai ... hook --event ...`, the form `install-hooks` writes; a plugin
@@ -147,7 +210,7 @@ fn summarize(result: &serde_json::Value, source: HookSource<'_>) -> Option<Codex
     for hook in response.data.into_iter().flat_map(|entry| entry.hooks) {
         let ours = match source {
             HookSource::File(hooks_file) => {
-                Path::new(&hook.source_path) == hooks_file
+                strip_verbatim(Path::new(&hook.source_path)) == strip_verbatim(hooks_file)
                     && hook.command.as_deref().is_some_and(|command| {
                         command.contains("estacao-ai") && command.contains(" hook --event ")
                     })

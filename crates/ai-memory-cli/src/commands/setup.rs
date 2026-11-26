@@ -998,8 +998,11 @@ async fn codex_hook_trust(
         .find(|agent| agent.agent == AgentChoice::Codex)?;
     let cwd = std::env::current_dir().ok()?;
     if codex.plugin {
+        let codex_bin = super::codex_hook_trust::resolve_codex_binary_with(&|name| {
+            config.runtime_env.var_os(name)
+        });
         super::codex_hook_trust::probe(
-            Path::new("codex"),
+            &codex_bin,
             super::codex_hook_trust::HookSource::Plugin(agent_plugins::PLUGIN_ID),
             &cwd,
         )

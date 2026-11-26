@@ -28,6 +28,9 @@ pub(crate) use http::{
     api_acao, api_estado, pagina_agentes, pagina_chat, pagina_consumo, pagina_projeto,
     pagina_projetos,
 };
-pub(crate) use memoria::{api_contexto, api_estante};
+pub(crate) use memoria::{
+    api_contexto, api_estante, api_exportar_memorias, api_importar_memorias,
+    api_inspecionar_memoria,
+};
 pub(crate) use terminal::api_terminal;
 pub(crate) use youtube::api_youtube;

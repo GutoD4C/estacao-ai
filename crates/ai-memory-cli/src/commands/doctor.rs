@@ -774,8 +774,9 @@ pub(super) async fn codex_hook_trust(
     if !installed.contains("estacao-ai") {
         return None;
     }
+    let codex_bin = super::codex_hook_trust::resolve_codex_binary_with(&|name| env.var_os(name));
     super::codex_hook_trust::probe(
-        Path::new("codex"),
+        &codex_bin,
         super::codex_hook_trust::HookSource::File(&hooks_file),
         cwd,
     )
@@ -911,8 +912,9 @@ async fn plugin_reports(
                     })
                     .then_some(config);
                 if report.plugin.enabled {
+                    let codex_bin = super::codex_hook_trust::resolve_codex_binary_with(env);
                     report.hook_trust = super::codex_hook_trust::probe(
-                        Path::new("codex"),
+                        &codex_bin,
                         super::codex_hook_trust::HookSource::Plugin(
                             super::agent_plugins::PLUGIN_ID,
                         ),

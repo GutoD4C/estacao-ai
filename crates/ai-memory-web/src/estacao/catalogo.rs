@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use super::estado::{
     Agente, Estacao, Estado, PAPEIS, Papel, Projeto, eh_conversa, grupo_do_agente,
 };
-use super::processo::{caminho_busca, cli_encontrada, dirs_home, localizar_binario};
+use super::processo::{caminho_busca, cli_encontrada, codex_home_dir, localizar_binario};
 
 #[derive(Serialize, Clone)]
 pub(super) struct OpcaoModelo {
@@ -130,7 +130,7 @@ pub(super) fn modelos_por_tab(texto: &str) -> Vec<OpcaoModelo> {
 }
 
 fn modelos_codex() -> Vec<OpcaoModelo> {
-    let Ok(b) = std::fs::read(dirs_home().join(".codex/models_cache.json")) else {
+    let Ok(b) = std::fs::read(codex_home_dir().join("models_cache.json")) else {
         return Vec::new();
     };
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b) else {

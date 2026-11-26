@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::catalogo::{cache_catalogo, montar_catalogo};
 use super::estado::{agora, estacao};
-use super::processo::{cli_encontrada, dirs_home};
+use super::processo::{cli_encontrada, codex_home_dir, dirs_home};
 use crate::state::WebState;
 
 #[derive(Serialize, Default)]
@@ -534,7 +534,7 @@ pub(super) fn janela_json(v: Option<&serde_json::Value>) -> Limite {
 
 /// Limites (5 h, semanal) do registro mais recente do Codex.
 fn limites_codex() -> Option<(Limite, Limite)> {
-    let raiz = dirs_home().join(".codex").join("sessions");
+    let raiz = codex_home_dir().join("sessions");
     let mut arquivos = Vec::new();
     // sessions/AAAA/MM/DD/*.jsonl: basta olhar os dias mais recentes.
     for ano in ordenados(&raiz).into_iter().rev().take(2) {

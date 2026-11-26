@@ -1030,3 +1030,309 @@ fn menciona_agente_evita_colisao_de_prefixo_e_json_ignora_colchetes_posteriores(
     assert!(!resp.contains("AVALIACAO_JSON"));
     assert!(!resp.contains("[Nota extra fora do JSON]"));
 }
+
+#[test]
+fn localizar_binario_e_codex_home_resolvem_caminhos_nativos() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake_codex = dir
+        .path()
+        .join(if cfg!(windows) { "codex.exe" } else { "codex" });
+    std::fs::write(&fake_codex, b"").unwrap();
+    assert_eq!(
+        super::processo::localizar_binario(&fake_codex.to_string_lossy()),
+        Some(fake_codex)
+    );
+    assert!(super::processo::cli_encontrada(&format!(
+        "\"{}\" exec -",
+        dir.path()
+            .join(if cfg!(windows) { "codex.exe" } else { "codex" })
+            .display()
+    )));
+    assert!(!super::processo::codex_home_dir().as_os_str().is_empty());
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
+    use ai_memory_core::{ActorContext, PagePath, Tier};
+    use ai_memory_store::Store;
+    use ai_memory_wiki::{Wiki, WritePageRequest};
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    assert!(super::memoria::parse_escopo("default/meu-proj").is_ok());
+    assert!(super::memoria::parse_escopo("sem-barra").is_err());
+    assert!(super::memoria::parse_escopo("a/b/c").is_err());
+    assert!(super::memoria::parse_escopo("../escape").is_err());
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path()).unwrap();
+    let wiki = Wiki::new(tmp.path(), store.writer.clone()).unwrap();
+
+    let ws_id = wiki
+        .writer()
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let p_alpha = wiki
+        .writer()
+        .get_or_create_project(ws_id, "alpha", Some("/tmp/alpha".into()))
+        .await
+        .unwrap();
+    let p_beta = wiki
+        .writer()
+        .get_or_create_project(ws_id, "beta", Some("/tmp/beta".into()))
+        .await
+        .unwrap();
+    let p_global = wiki
+        .writer()
+        .get_or_create_project(ws_id, "_global", None)
+        .await
+        .unwrap();
+
+    wiki.write_page(WritePageRequest {
+        workspace_id: ws_id,
+        project_id: p_alpha,
+        path: PagePath::new("decisions/arquitetura.md").unwrap(),
+        frontmatter: serde_json::json!({ "kind": "decision", "tags": ["canonical"] }),
+        body: "Decisão Alpha preservada.".into(),
+        tier: Tier::Semantic,
+        pinned: true,
+        title: Some("Arquitetura Alpha".into()),
+        admission_ctx: None,
+        author_id: None,
+        evidence: Vec::new(),
+        actor: ActorContext::anonymous(),
+    })
+    .await
+    .unwrap();
+    wiki.write_page(WritePageRequest {
+        workspace_id: ws_id,
+        project_id: p_beta,
+        path: PagePath::new("_rules/padrao.md").unwrap(),
+        frontmatter: serde_json::json!({ "kind": "rule" }),
+        body: "Regra Beta original.".into(),
+        tier: Tier::Procedural,
+        pinned: false,
+        title: Some("Regra Beta".into()),
+        admission_ctx: None,
+        author_id: None,
+        evidence: Vec::new(),
+        actor: ActorContext::anonymous(),
+    })
+    .await
+    .unwrap();
+    wiki.write_page(WritePageRequest {
+        workspace_id: ws_id,
+        project_id: p_global,
+        path: PagePath::new("preferencias.md").unwrap(),
+        frontmatter: serde_json::Value::Null,
+        body: "Idioma português.".into(),
+        tier: Tier::Semantic,
+        pinned: false,
+        title: Some("Preferências Globais".into()),
+        admission_ctx: None,
+        author_id: None,
+        evidence: Vec::new(),
+        actor: ActorContext::anonymous(),
+    })
+    .await
+    .unwrap();
+
+    let state = Arc::new(crate::WebState::new(store.reader.clone(), wiki));
+    super::estado::estacao(&state)
+        .mudar(|e| {
+            e.projetos.push(Projeto {
+                id: "proj-beta".into(),
+                nome: "Projeto Beta".into(),
+                memoria: "default/beta".into(),
+                ..Projeto::default()
+            });
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let app = crate::localization::apply(
+        axum::Router::new()
+            .route(
+                "/estacao/api/memorias/inspecionar",
+                axum::routing::get(super::memoria::api_inspecionar_memoria),
+            )
+            .route(
+                "/estacao/api/memorias/exportar",
+                axum::routing::post(super::memoria::api_exportar_memorias),
+            )
+            .route(
+                "/estacao/api/memorias/importar",
+                axum::routing::post(super::memoria::api_importar_memorias),
+            )
+            .with_state(state.clone()),
+    );
+
+    // 1. Inspecionar individualmente
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/estacao/api/memorias/inspecionar?escopo=default%2Falpha")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let inspecao: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(inspecao["total_paginas"], 1);
+    assert_eq!(inspecao["paginas"][0]["title"], "Arquitetura Alpha");
+    assert_eq!(inspecao["paginas"][0]["body"], "Decisão Alpha preservada.");
+
+    // 2. Segurança CSRF / X-Estacao-UI obrigatória na exportação
+    let sem_csrf = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/exportar")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"escopos":["default/alpha"]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sem_csrf.status(), StatusCode::FORBIDDEN);
+
+    // 3. Exportar seleção total (alpha + beta + global)
+    let exp_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/exportar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(
+                    r#"{"escopos":["default/alpha","default/beta","default/_global"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exp_resp.status(), StatusCode::OK);
+    let exp_bytes = axum::body::to_bytes(exp_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let pacote: serde_json::Value = serde_json::from_slice(&exp_bytes).unwrap();
+    assert_eq!(pacote["formato"], "estacao-ai-memoria-v1");
+    assert_eq!(pacote["projetos"].as_array().unwrap().len(), 3);
+
+    // 4. Excluir recusa global e remove projeto + desvincula Projeto Beta
+    let err_global = super::memoria::excluir_memoria(
+        &state,
+        super::estado::estacao(&state),
+        "default/_global",
+        None,
+        ActorContext::anonymous(),
+    )
+    .await
+    .unwrap_err();
+    assert!(err_global.contains("global"));
+
+    let ok_del = super::memoria::excluir_memoria(
+        &state,
+        super::estado::estacao(&state),
+        "default/beta",
+        None,
+        ActorContext::anonymous(),
+    )
+    .await
+    .unwrap();
+    assert!(ok_del.unwrap().contains("default/beta"));
+
+    {
+        let est_ref = super::estado::estacao(&state);
+        let e = est_ref.estado.lock().await;
+        assert_eq!(e.projetos[0].memoria, "");
+    }
+    let resp_404 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/estacao/api/memorias/inspecionar?escopo=default%2Fbeta")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_404.status(), StatusCode::NOT_FOUND);
+
+    // 5. Reimportar seletivamente apenas default/beta a partir do pacote exportado
+    let imp_req = serde_json::json!({
+        "pacote": pacote,
+        "selecionar": ["default/beta"],
+        "modo": "mesclar"
+    });
+    let imp_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/importar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(imp_req.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(imp_resp.status(), StatusCode::OK);
+    let imp_bytes = axum::body::to_bytes(imp_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let imp_res: serde_json::Value = serde_json::from_slice(&imp_bytes).unwrap();
+    assert_eq!(imp_res["projetos_importados"], 1);
+    assert_eq!(imp_res["paginas_importadas"], 1);
+
+    let resp_restaurada = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/estacao/api/memorias/inspecionar?escopo=default%2Fbeta")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_restaurada.status(), StatusCode::OK);
+    let rest_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(resp_restaurada.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(rest_json["paginas"][0]["body"], "Regra Beta original.");
+
+    // 6. Substituir em default/_global é recusado
+    let imp_global_sub = serde_json::json!({
+        "pacote": pacote,
+        "selecionar": ["default/_global"],
+        "modo": "substituir"
+    });
+    let resp_sub_global = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/importar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(imp_global_sub.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_sub_global.status(), StatusCode::BAD_REQUEST);
+}

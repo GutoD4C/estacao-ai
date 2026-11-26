@@ -163,6 +163,19 @@ pub(crate) fn station(state: Arc<WebState>) -> Router {
                     .route("/estacao/api/youtube", get(crate::estacao::api_youtube))
                     .route("/estacao/api/estante", get(crate::estacao::api_estante))
                     .route(
+                        "/estacao/api/memorias/inspecionar",
+                        get(crate::estacao::api_inspecionar_memoria),
+                    )
+                    .route(
+                        "/estacao/api/memorias/exportar",
+                        post(crate::estacao::api_exportar_memorias),
+                    )
+                    .route(
+                        "/estacao/api/memorias/importar",
+                        post(crate::estacao::api_importar_memorias)
+                            .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+                    )
+                    .route(
                         "/estacao/api/atualizacao",
                         get(crate::estacao::api_atualizacao),
                     )

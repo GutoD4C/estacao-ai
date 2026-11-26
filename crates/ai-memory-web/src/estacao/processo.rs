@@ -411,14 +411,39 @@ pub(super) async fn executar_comando(
 /// PATH do serviço mais as pastas onde as CLIs de IA costumam ficar
 /// (no Linux/systemd e no Windows nativo).
 pub(super) fn caminho_busca() -> std::ffi::OsString {
-    let home = dirs_home();
-    let mut pastas: Vec<PathBuf> = [
+    let mut pastas: Vec<PathBuf> = Vec::new();
+    let mut push_unique = |p: PathBuf| {
+        if !p.as_os_str().is_empty() && !pastas.contains(&p) {
+            pastas.push(p);
+        }
+    };
+
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for key in if cfg!(windows) {
+        ["USERPROFILE", "HOME"]
+    } else {
+        ["HOME", "USERPROFILE"]
+    } {
+        if let Some(v) = std::env::var_os(key) {
+            let p = PathBuf::from(v);
+            if !p.as_os_str().is_empty() && !homes.contains(&p) {
+                homes.push(p);
+            }
+        }
+    }
+    if homes.is_empty() {
+        homes.push(dirs_home());
+    }
+
+    let sufixos_home = [
         ".local/bin",
         ".opencode/bin",
         ".pi/agent/bin",
         ".cargo/bin",
         ".bun/bin",
         ".npm-global/bin",
+        "scoop/shims",
+        ".volta/bin",
         "AppData/Local/agy/bin",
         "AppData/Local/Programs/antigravity/bin",
         "AppData/Local/Programs/OpenAI/Codex/bin",
@@ -426,19 +451,73 @@ pub(super) fn caminho_busca() -> std::ffi::OsString {
         "AppData/Local/Programs/claude-code",
         "AppData/Local/Programs/Ollama",
         "AppData/Local/Microsoft/WinGet/Links",
+        "AppData/Local/Microsoft/WindowsApps",
         "AppData/Roaming/npm",
-    ]
-    .iter()
-    .map(|p| home.join(p))
-    .collect();
-    if cfg!(windows) {
-        pastas.push(PathBuf::from(r"C:\Program Files\Git\bin"));
-        pastas.push(PathBuf::from(r"C:\Program Files\Git\usr\bin"));
+    ];
+    for home in &homes {
+        for rel in sufixos_home {
+            push_unique(home.join(rel));
+        }
     }
+
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            for rel in [
+                r"Programs\OpenAI\Codex\bin",
+                r"Programs\OpenAI\Codex\resources\bin",
+                r"agy\bin",
+                r"Programs\antigravity\bin",
+                r"Programs\estacao-ai",
+                r"Programs\claude-code",
+                r"Programs\Ollama",
+                r"Microsoft\WinGet\Links",
+                r"Microsoft\WindowsApps",
+            ] {
+                push_unique(local.join(rel));
+            }
+        }
+        if let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            push_unique(roaming.join("npm"));
+        }
+        for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(pf) = std::env::var_os(key).map(PathBuf::from) {
+                push_unique(pf.join(r"OpenAI\Codex\bin"));
+                push_unique(pf.join("nodejs"));
+                push_unique(pf.join(r"Git\bin"));
+                push_unique(pf.join(r"Git\usr\bin"));
+            }
+        }
+        if let Some(nvm) = std::env::var_os("NVM_SYMLINK").map(PathBuf::from) {
+            push_unique(nvm);
+        }
+        if let Some(volta) = std::env::var_os("VOLTA_HOME").map(PathBuf::from) {
+            push_unique(volta.join("bin"));
+        }
+        push_unique(PathBuf::from(r"C:\Program Files\Git\bin"));
+        push_unique(PathBuf::from(r"C:\Program Files\Git\usr\bin"));
+    }
+
     if let Some(atual) = std::env::var_os("PATH") {
-        pastas.extend(std::env::split_paths(&atual));
+        for p in std::env::split_paths(&atual) {
+            push_unique(p);
+        }
     }
     std::env::join_paths(pastas).unwrap_or_default()
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            return !meta.is_dir() && (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        }
+    }
+    false
 }
 
 /// Localiza o executável de `prog` no `caminho_busca()`, considerando extensões do Windows.
@@ -462,7 +541,7 @@ pub(super) fn localizar_binario(prog: &str) -> Option<PathBuf> {
                 s.push(ext);
                 PathBuf::from(s)
             };
-            if candidato.is_file() {
+            if is_executable_file(&candidato) {
                 return Some(candidato);
             }
         }
@@ -491,7 +570,20 @@ pub(super) fn expandir_home(caminho: &str) -> PathBuf {
 }
 
 pub(super) fn dirs_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map_or_else(|| PathBuf::from("/"), PathBuf::from)
+    if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map_or_else(|| PathBuf::from("C:\\"), PathBuf::from)
+    } else {
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map_or_else(|| PathBuf::from("/"), PathBuf::from)
+    }
+}
+
+pub(super) fn codex_home_dir() -> PathBuf {
+    std::env::var_os("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dirs_home().join(".codex"))
 }

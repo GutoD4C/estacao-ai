@@ -14,6 +14,7 @@ var ultimaCarga="",seqCarga=0,enviando=false,rolarFim=false,aba="chat",abaModelo
 var vistaChat="3d",chatMenuAtivo=true,SCENE3D={key:"",el:null,ctrl:null};
 var abaChatsFiltro="pessoais",abaProjetosFiltro="pessoais";
 var confirmDialog=null,toastEl=null,toastTimer=null;
+var memoriasSel=new Set();
 var rascunhoTarefa={tit:"",desc:"",ag:""};
 var TERMS={projeto:"",ativo:0,split:false,seq:1,tabs:[]};
 var redeContatos=null, assinaturaRede="", pulso=null, contatosOnline=new Set();
@@ -341,8 +342,8 @@ function h(tag,attrs,filhos){
   return el;
 }
 
-function api(corpo){
-  return requisicao("estacao/api/acao",{
+function apiPostJson(rota,corpo){
+  return requisicao(rota,{
     method:"POST",
     credentials:"same-origin",
     headers:{"Content-Type":"application/json","X-Estacao-UI":"1","X-CSRF-Token":decodeURIComponent(cookie("ai_memory_csrf")||"")},
@@ -350,10 +351,15 @@ function api(corpo){
   }).then(function(r){
     if(!r.ok)return r.text().then(function(t){throw new Error(t||("Erro "+r.status));});
     return r.text().then(function(t){
-      var res=null;
-      try{if(t)res=JSON.parse(t);}catch(_){}
-      return carregar().then(function(){return res;});
+      if(!t)return null;
+      try{return JSON.parse(t);}catch(_){return t;}
     });
+  });
+}
+
+function api(corpo){
+  return apiPostJson("estacao/api/acao",corpo).then(function(res){
+    return carregar().then(function(){return res;});
   });
 }
 
@@ -1057,11 +1063,13 @@ function abrirModalModelo(a){
   });
 }
 
+var CATALOGO_ERRO=false;
 function carregarCatalogo(forcar){
+  CATALOGO_ERRO=false;
   return requisicao("estacao/api/catalogo"+(forcar?"?atualizar=1":""),{credentials:"same-origin",cache:"no-store"})
-    .then(function(r){return r.ok?r.json():[];})
-    .then(function(c){CATALOGO=c;if(!modal)desenhar();})
-    .catch(function(){CATALOGO=[];});
+    .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+    .then(function(c){CATALOGO=Array.isArray(c)?c:[];CATALOGO_ERRO=false;if(!modal)desenhar();})
+    .catch(function(){CATALOGO=null;CATALOGO_ERRO=true;if(!modal)desenhar();});
 }
 function provedor(forn){return (CATALOGO||[]).find(function(p){return p.fornecedor===forn;});}
 function ferramentaAtiva(forn){return !E||!(E.ferramentas_desativadas||[]).includes(forn);}
@@ -1280,7 +1288,7 @@ function telaModelos(){
     h("button",{type:"button",class:"quiet-button est-text-11px",texto:"↻ Detectar de novo",onclick:function(){CATALOGO=null;carregarCatalogo(true);}})
   ]));
   var ferr=h("div",{class:"grid est-grid-cols-220px est-m-10px-0-22px"});
-  if(!CATALOGO)ferr.append(h("p",{class:"muted",texto:"Detectando ferramentas de IA instaladas…"}));
+  if(!CATALOGO)ferr.append(h("p",{class:"muted",texto:CATALOGO_ERRO?"Não foi possível carregar as ferramentas agora. Clique em ↻ Detectar de novo.":"Detectando ferramentas de IA instaladas…"}));
   (CATALOGO||[]).forEach(function(p){
     var st=statusProvedor(p);
     var ativa=p.instalado&&ferramentaAtiva(p.fornecedor);
@@ -2282,6 +2290,307 @@ function ativarMemoria(m,abrirDireto){
   }
 }
 
+function baixarJsonArquivo(nomeArquivo,dados){
+  var json=JSON.stringify(dados,null,2);
+  var blob=new Blob([json],{type:"application/json;charset=utf-8"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  a.href=url;
+  a.download=nomeArquivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+
+function exportarMemorias(escopos,errEl){
+  if(!escopos||!escopos.length){
+    mostrarToast("Selecione ao menos uma memória para exportar.");
+    return Promise.resolve();
+  }
+  return apiPostJson("estacao/api/memorias/exportar",{escopos:escopos}).then(function(pacote){
+    var dataHoje=new Date().toISOString().slice(0,10);
+    var slug=escopos.length===1
+      ?("memoria-"+escopos[0].replace(/[^a-zA-Z0-9_-]+/g,"-").replace(/^-+|-+$/g,"")+"-"+dataHoje+".json")
+      :("estacao-memorias-"+dataHoje+".json");
+    baixarJsonArquivo(slug,pacote);
+    mostrarToast("Exportação concluída ("+escopos.length+" memória(s)).");
+  }).catch(errEl?falha(errEl):function(e){mostrarToast(e.message);});
+}
+
+function excluirMemoriaComConfirmacao(escopo,errEl){
+  if(escopo==="default/_global"){
+    mostrarToast("A memória global (default/_global) não pode ser excluída.");
+    return;
+  }
+  confirmarAcao({
+    titulo:"Excluir memória do projeto",
+    mensagem:"Excluir permanentemente a memória \""+escopo+"\" (páginas Markdown, sessões e histórico indexado)? Projetos locais vinculados continuarão existindo sem memória ligada.",
+    textoConfirmar:"Excluir memória",
+    perigo:true
+  }).then(function(sim){
+    if(!sim)return;
+    api({tipo:"excluir_memoria",escopo:escopo}).then(function(res){
+      memoriasSel.delete(escopo);
+      if(modal&&modal.titulo&&modal.titulo.indexOf(escopo)>=0)fecharModal();
+      mostrarToast((res&&res.id)||"Memória excluída.");
+    }).catch(errEl?falha(errEl):function(e){mostrarToast(e.message);});
+  });
+}
+
+function formatarDataHoraCurta(micros){
+  if(!micros)return "";
+  var ms=micros>1e14?Math.floor(micros/1000):(micros<1e11?micros*1000:micros);
+  var d=new Date(ms);
+  return isNaN(d.getTime())?"":d.toLocaleString("pt-BR");
+}
+
+function abrirModalVerificarMemoria(escopo){
+  abrirModal("Verificar memória · "+escopo,function(card){
+    card.classList.add("modal-card-wide");
+    var err=erroBox();
+    var bodyBox=h("div",{class:"est-grid est-gap-10px"},[
+      h("p",{class:"muted",texto:"Carregando páginas e sessões da memória…"})
+    ]);
+    card.append(err,bodyBox);
+    requisicao("estacao/api/memorias/inspecionar?escopo="+encodeURIComponent(escopo),{credentials:"same-origin",cache:"no-store"})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error(t||("Erro "+r.status));});
+        return r.json();
+      })
+      .then(function(info){
+        bodyBox.replaceChildren();
+        var acoesTopo=h("div",{class:"row"},[
+          h("button",{type:"button",class:"secondary-button",texto:"⬆ Exportar esta",onclick:function(){exportarMemorias([info.escopo],err);}}),
+          info.escopo!=="default/_global"
+            ?h("button",{type:"button",class:"quiet-button btn-parar",texto:"Excluir memória",onclick:function(){excluirMemoriaComConfirmacao(info.escopo,err);}})
+            :null
+        ]);
+        var meta=h("div",{class:"row est-justify-space-between"},[
+          h("div",{class:"chips"},[
+            h("span",{class:"pill accent",texto:info.total_paginas+" página(s)"}),
+            h("span",{class:"pill",texto:info.total_sessoes+" sessão(ões)"}),
+            info.abertas?h("span",{class:"pill warn",texto:info.abertas+" aberta(s)"}):null,
+            info.tem_toml?h("span",{class:"pill ok",texto:".estacao-ai.toml ativo"}):null,
+            info.projetos_vinculados&&info.projetos_vinculados.length
+              ?h("span",{class:"pill",texto:"Ligada a: "+info.projetos_vinculados.map(function(p){return p.nome;}).join(", ")})
+              :h("span",{class:"pill",texto:"Não ligada a projeto"})
+          ]),
+          acoesTopo
+        ]);
+        var filtroInput=h("input",{type:"search",placeholder:"Filtrar páginas por título, caminho ou tipo…"});
+        var listaPaginas=h("div",{class:"mem-inspect-list"});
+        function renderPaginas(){
+          var q=filtroInput.value.trim().toLowerCase();
+          var itens=(info.paginas||[]).filter(function(pg){
+            return !q||pg.title.toLowerCase().indexOf(q)>=0||pg.path.toLowerCase().indexOf(q)>=0||pg.kind.toLowerCase().indexOf(q)>=0;
+          });
+          listaPaginas.replaceChildren();
+          if(!itens.length){
+            listaPaginas.append(h("div",{class:"card est-p-12px muted",texto:q?"Nenhuma página corresponde ao filtro.":"Esta memória ainda não possui páginas consolidadas."}));
+            return;
+          }
+          itens.forEach(function(pg){
+            var detalhes=pg.body
+              ?h("details",{},[
+                  h("summary",{class:"muted est-cursor-pointer",texto:"Ver conteúdo completo"}),
+                  h("pre",{class:"mem-inspect-body",texto:pg.body})
+                ])
+              :null;
+            listaPaginas.append(h("div",{class:"mem-inspect-item"},[
+              h("div",{class:"row est-justify-space-between"},[
+                h("strong",{texto:pg.title||pg.path}),
+                h("div",{class:"chips"},[
+                  pg.pinned?h("span",{class:"pill accent",texto:"Fixada"}):null,
+                  h("span",{class:"pill",texto:pg.kind}),
+                  h("span",{class:"pill",texto:pg.tier})
+                ])
+              ]),
+              h("div",{class:"row est-justify-space-between muted"},[
+                h("span",{class:"mono",texto:pg.path}),
+                pg.updated_at?h("span",{texto:formatarDataHoraCurta(pg.updated_at)}):null
+              ]),
+              pg.resumo?h("p",{class:"muted est-m-0",texto:pg.resumo}):null,
+              detalhes
+            ]));
+          });
+        }
+        filtroInput.addEventListener("input",renderPaginas);
+        renderPaginas();
+
+        var sessoesBox=null;
+        if(info.sessoes&&info.sessoes.length){
+          sessoesBox=h("details",{},[
+            h("summary",{class:"muted est-cursor-pointer",texto:"Sessões recentes ("+info.sessoes.length+")"}),
+            h("div",{class:"est-grid est-gap-6px est-mt-6px"},info.sessoes.map(function(s){
+              return h("div",{class:"mem-item row est-justify-space-between"},[
+                h("span",{class:"mono",texto:(s.agent_kind||"sessão")+" · "+s.id.slice(0,12)}),
+                h("div",{class:"row"},[
+                  s.cwd?h("span",{class:"muted mono corta",title:s.cwd,texto:s.cwd}):null,
+                  h("span",{class:"pill "+(s.ended?"":"warn"),texto:s.ended?"encerrada":"aberta"})
+                ])
+              ]);
+            }))
+          ]);
+        }
+
+        bodyBox.append(
+          info.pasta?h("div",{class:"muted mono corta",title:info.pasta,texto:"Pasta detectada: "+info.pasta}):null,
+          meta,
+          filtroInput,
+          listaPaginas,
+          sessoesBox
+        );
+      })
+      .catch(function(e){
+        bodyBox.replaceChildren();
+        err.textContent=e.message;
+        err.hidden=false;
+      });
+  });
+}
+
+function abrirModalImportarMemoria(){
+  abrirModal("Importar memória dos projetos",function(card){
+    card.classList.add("modal-card-wide");
+    var err=erroBox();
+    var pacote=null;
+    var selecionados=new Set();
+    var modoSel=h("select",{},[
+      h("option",{value:"mesclar",texto:"Mesclar (mantém memórias atuais e adiciona/atualiza páginas do arquivo)"}),
+      h("option",{value:"substituir",texto:"Substituir (recria do zero cada projeto selecionado; default/_global sempre mescla)"})
+    ]);
+    var previewArea=h("div",{class:"est-grid est-gap-10px"});
+    var btnImportar=h("button",{type:"button",class:"primary-button",disabled:true,texto:"Importar selecionadas (0)"});
+
+    function atualizarBotao(){
+      var n=selecionados.size;
+      btnImportar.disabled=!pacote||n===0;
+      btnImportar.textContent="Importar selecionadas ("+n+")";
+    }
+
+    function renderPreview(){
+      previewArea.replaceChildren();
+      if(!pacote)return;
+      var existSet=new Set((E&&E.memorias||[]).map(function(m){return m.escopo;}));
+      var totalPags=pacote.projetos.reduce(function(acc,p){return acc+(p.paginas?p.paginas.length:0);},0);
+      var masterChk=h("input",{type:"checkbox"});
+      masterChk.checked=selecionados.size===pacote.projetos.length&&pacote.projetos.length>0;
+      masterChk.addEventListener("change",function(){
+        selecionados.clear();
+        if(masterChk.checked)pacote.projetos.forEach(function(p){selecionados.add(p.escopo);});
+        renderPreview();
+        atualizarBotao();
+      });
+      var lista=h("div",{class:"mem-import-list"});
+      pacote.projetos.forEach(function(proj){
+        var chk=h("input",{type:"checkbox"});
+        chk.checked=selecionados.has(proj.escopo);
+        chk.addEventListener("change",function(){
+          if(chk.checked)selecionados.add(proj.escopo);else selecionados.delete(proj.escopo);
+          masterChk.checked=selecionados.size===pacote.projetos.length;
+          atualizarBotao();
+        });
+        var pags=proj.paginas||[];
+        var inspecao=h("details",{},[
+          h("summary",{class:"muted est-cursor-pointer",texto:"Verificar "+pags.length+" página(s) deste projeto"}),
+          h("div",{class:"est-grid est-gap-4px est-mt-6px"},pags.length?pags.slice(0,80).map(function(pg){
+            return h("div",{class:"mem-item row est-justify-space-between"},[
+              h("span",{texto:pg.title||pg.path}),
+              h("span",{class:"muted mono",texto:pg.path})
+            ]);
+          }):[h("span",{class:"muted",texto:"Projeto sem páginas gravadas."})])
+        ]);
+        lista.append(h("div",{class:"mem-inspect-item"},[
+          h("div",{class:"row est-justify-space-between"},[
+            h("label",{class:"mem-check-label"},[chk,h("span",{texto:nomeProjetoMemoria(proj.escopo)}),h("span",{class:"muted mono",texto:proj.escopo})]),
+            h("div",{class:"chips"},[
+              h("span",{class:"pill",texto:pags.length+" página(s)"}),
+              existSet.has(proj.escopo)
+                ?h("span",{class:"pill warn",texto:"Já existe localmente"})
+                :h("span",{class:"pill ok",texto:"Novo"})
+            ])
+          ]),
+          proj.pasta?h("div",{class:"muted mono corta",texto:proj.pasta}):null,
+          inspecao
+        ]));
+      });
+      previewArea.append(
+        h("div",{class:"chips"},[
+          h("span",{class:"pill accent",texto:pacote.projetos.length+" projeto(s) no arquivo"}),
+          h("span",{class:"pill",texto:totalPags+" página(s) no total"}),
+          pacote.versao_app?h("span",{class:"pill",texto:"Estação "+pacote.versao_app}):null
+        ]),
+        campo("Modo de importação",modoSel),
+        h("div",{class:"row est-justify-space-between"},[
+          h("label",{class:"mem-check-label"},[masterChk,h("span",{texto:"Selecionar todas ("+selecionados.size+"/"+pacote.projetos.length+")"})])
+        ]),
+        lista
+      );
+      atualizarBotao();
+    }
+
+    var inputArq=h("input",{type:"file",accept:".json,application/json"});
+    inputArq.addEventListener("change",function(){
+      err.hidden=true;
+      var arq=inputArq.files&&inputArq.files[0];
+      if(!arq)return;
+      arq.text().then(function(txt){
+        var parsed=JSON.parse(txt);
+        if(!parsed||parsed.formato!=="estacao-ai-memoria-v1"||!Array.isArray(parsed.projetos)){
+          throw new Error("Arquivo inválido: selecione um JSON exportado pela Estação I.A.");
+        }
+        if(!parsed.projetos.length){
+          throw new Error("O arquivo selecionado não contém nenhuma memória de projeto.");
+        }
+        pacote=parsed;
+        selecionados=new Set(parsed.projetos.map(function(p){return p.escopo;}));
+        renderPreview();
+        atualizarBotao();
+      }).catch(function(e){
+        pacote=null;
+        selecionados.clear();
+        previewArea.replaceChildren();
+        atualizarBotao();
+        err.textContent=e.message||"Não foi possível ler o arquivo JSON.";
+        err.hidden=false;
+      });
+    });
+
+    btnImportar.addEventListener("click",function(){
+      if(!pacote||!selecionados.size)return;
+      err.hidden=true;
+      btnImportar.disabled=true;
+      btnImportar.textContent="Importando…";
+      apiPostJson("estacao/api/memorias/importar",{
+        pacote:pacote,
+        selecionar:Array.from(selecionados),
+        modo:modoSel.value
+      }).then(function(res){
+        return carregar().then(function(){
+          fecharModal();
+          mostrarToast("Importado: "+(res.projetos_importados||0)+" projeto(s) e "+(res.paginas_importadas||0)+" página(s).");
+        });
+      }).catch(function(e){
+        atualizarBotao();
+        err.textContent=e.message;
+        err.hidden=false;
+      });
+    });
+
+    card.append(
+      h("p",{class:"muted",texto:"Selecione um arquivo de backup (.json) gerado pela Estação I.A, escolha todos ou apenas alguns projetos, inspecione o conteúdo e importe."}),
+      campo("Arquivo de backup (.json)",inputArq),
+      err,
+      previewArea,
+      h("div",{class:"modal-foot"},[
+        h("button",{type:"button",class:"secondary-button",texto:"Cancelar",onclick:fecharModal}),
+        btnImportar
+      ])
+    );
+  });
+}
+
 function telaProjetos(){
   var err=erroBox();
   var todosProjetos=E.projetos.filter(function(p){return !ehChat(p);});
@@ -2297,6 +2606,7 @@ function telaProjetos(){
       ]),
       h("div",{class:"row"},[
         botaoConvites(),botaoContaNostr(),
+        h("button",{type:"button",class:"secondary-button",texto:"⬇ Importar memória",onclick:abrirModalImportarMemoria}),
         h("button",{type:"button",class:"secondary-button",texto:"◈ Contexto global",onclick:abrirModalContextoGlobal}),
         h("button",{type:"button",class:"primary-button",texto:"+ Novo projeto",onclick:function(){abrirModalProjeto(null,function(res){if(res&&res.id)irPara("projetos/"+encodeURIComponent(res.id));});}})
       ])
@@ -2427,6 +2737,91 @@ function telaProjetos(){
     });
     raiz.append(dg);
   }
+
+  var todasMemorias=(E.memorias||[]).slice().sort(function(a,b){
+    if(a.escopo==="default/_global")return 1;
+    if(b.escopo==="default/_global")return -1;
+    return a.escopo.localeCompare(b.escopo);
+  });
+  var escoposValidos=new Set(todasMemorias.map(function(m){return m.escopo;}));
+  Array.from(memoriasSel).forEach(function(escopo){if(!escoposValidos.has(escopo))memoriasSel.delete(escopo);});
+  var vinculadosPorEscopo=new Map();
+  todosProjetos.forEach(function(p){
+    if(!p.memoria)return;
+    var lst=vinculadosPorEscopo.get(p.memoria)||[];
+    lst.push(p.nome);
+    vinculadosPorEscopo.set(p.memoria,lst);
+  });
+  var todasSel=todasMemorias.length>0&&todasMemorias.every(function(m){return memoriasSel.has(m.escopo);});
+  var chkTodas=h("input",{type:"checkbox"});
+  chkTodas.checked=todasSel;
+  chkTodas.disabled=!todasMemorias.length;
+  chkTodas.addEventListener("change",function(){
+    memoriasSel.clear();
+    if(chkTodas.checked)todasMemorias.forEach(function(m){memoriasSel.add(m.escopo);});
+    desenhar();
+  });
+
+  raiz.append(h("div",{class:"row est-justify-space-between est-mt-18px"},[
+    h("div",{},[
+      h("h2",{class:"est-m-0",texto:"Memórias dos Projetos"}),
+      h("p",{class:"muted est-m-0",texto:"Exporte backups com seleção total ou individual, importe para restaurar em outra máquina e verifique ou exclua cada memória separadamente."})
+    ])
+  ]));
+
+  var listaCard=h("div",{class:"role-list mem-list-card"},[
+    h("div",{class:"role-list-head mem-list-head"},[
+      h("label",{class:"mem-check-label"},[
+        chkTodas,
+        h("span",{texto:todasMemorias.length?("Selecionar todas ("+memoriasSel.size+"/"+todasMemorias.length+")"):"Nenhuma memória encontrada"})
+      ]),
+      h("div",{class:"row"},[
+        h("button",{type:"button",class:"secondary-button",disabled:memoriasSel.size===0,texto:"⬆ Exportar selecionadas ("+memoriasSel.size+")",onclick:function(){
+          exportarMemorias(Array.from(memoriasSel),err);
+        }}),
+        h("button",{type:"button",class:"primary-button",texto:"⬇ Importar memória…",onclick:abrirModalImportarMemoria})
+      ])
+    ])
+  ]);
+
+  if(!todasMemorias.length){
+    listaCard.append(h("div",{class:"est-p-20px muted",texto:"Ainda não há memórias registradas. Use um projeto ou importe um arquivo de backup."}));
+  }else{
+    todasMemorias.forEach(function(m){
+      var chk=h("input",{type:"checkbox"});
+      chk.checked=memoriasSel.has(m.escopo);
+      chk.addEventListener("change",function(){
+        if(chk.checked)memoriasSel.add(m.escopo);else memoriasSel.delete(m.escopo);
+        desenhar();
+      });
+      var vinc=vinculadosPorEscopo.get(m.escopo);
+      var ehGlobal=m.escopo==="default/_global";
+      listaCard.append(h("div",{class:"role-row"},[
+        chk,
+        h("div",{class:"role-row-main"},[
+          h("div",{class:"role-row-title"},[
+            h("strong",{texto:ehGlobal?"Memória Global":nomeProjetoMemoria(m.escopo)}),
+            h("span",{class:"pill mono",texto:m.escopo}),
+            h("span",{class:"pill",texto:m.paginas+" página(s)"}),
+            h("span",{class:"pill",texto:m.sessoes+" sessão(ões)"}),
+            ehGlobal
+              ?h("span",{class:"pill accent",texto:"Global (protegida)"})
+              :(vinc?h("span",{class:"pill ok",texto:"Ligada: "+vinc.join(", ")}):h("span",{class:"pill",texto:"Disponível"})),
+            ocultas.indexOf(m.escopo)>=0?h("span",{class:"pill warn",texto:"Oculta"}):null
+          ]),
+          m.pasta?h("p",{class:"role-row-desc mono corta",title:m.pasta,texto:m.pasta}):h("p",{class:"role-row-desc",texto:"Sem pasta de sessão registrada"})
+        ]),
+        h("div",{class:"mem-row-actions"},[
+          h("button",{type:"button",class:"secondary-button",texto:"Verificar",onclick:function(){abrirModalVerificarMemoria(m.escopo);}}),
+          h("button",{type:"button",class:"secondary-button",texto:"Exportar",onclick:function(){exportarMemorias([m.escopo],err);}}),
+          !ehGlobal
+            ?h("button",{type:"button",class:"quiet-button btn-parar",title:"Excluir memória permanentemente",texto:"Excluir",onclick:function(){excluirMemoriaComConfirmacao(m.escopo,err);}})
+            :null
+        ])
+      ]));
+    });
+  }
+  raiz.append(listaCard);
 }
 
 /* ================================================================ PROJETO EXPANDIDO (COCKPIT) */
