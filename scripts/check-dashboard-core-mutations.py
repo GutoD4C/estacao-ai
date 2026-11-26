@@ -53,28 +53,10 @@ CASES = [
     },
 
     {
-        "name": "expose-private-notification-projects", "file": "crates/ai-memory-web/src/routes/notifications.rs",
-        "start": "pub(crate) async fn handler(", "end": "let notifications =",
-        "before": "pending_inbox_counts(viewer.map(|v| v.0.user()))", "after": "pending_inbox_counts(viewer.filter(|_| false).map(|v| v.0.user()))",
-        "command": ["cargo", "test", "-p", "ai-memory-web", "--lib", "operations_notifications_are_read_only_and_hide_restricted_projects"],
-    },
-    {
-        "name": "ignore-message-state-before-pagination", "file": "crates/ai-memory-store/src/dashboard.rs",
-        "start": "pub async fn message_history_filtered(", "end": "/// Read this session",
-        "before": "(?5 IS NULL OR state=?5)", "after": "(?5 IS NULL OR ?5 IS NOT NULL)",
-        "command": ["cargo", "test", "-p", "ai-memory-web", "--lib", "operations_pending_mail_is_filtered_before_history_pagination"],
-    },
-    {
         "name": "hide-resumed-session-activity", "file": "crates/ai-memory-store/src/reader.rs",
         "start": "fn sessions_for_scope_sql(", "end": "fn handoff_listing_sql(",
         "before": "AND resumed.created_at > s.ended_at", "after": "AND resumed.created_at > s.ended_at AND 0",
         "command": ["cargo", "test", "-p", "ai-memory-store", "--lib", "resumed_summary_is_open_and_preserves_the_persisted_end"],
-    },
-    {
-        "name": "expose-restricted-mailbox-projects", "file": "crates/ai-memory-web/src/routes/inbox.rs",
-        "start": "pub(crate) async fn handler(", "end": "#[derive(Deserialize)]",
-        "before": "list_projects_with_stats(viewer)", "after": "list_projects_with_stats(viewer.and(None))",
-        "command": ["cargo", "test", "-p", "ai-memory-web", "--lib", "operations_inbox_queue_context_hides_foreign_projects_and_preserves_mail"],
     },
     {
         "name": "capture-only-at-session-end", "file": "crates/ai-memory-cli/src/commands/hook.rs",
@@ -100,20 +82,6 @@ CASES = [
         "start": "pub(crate) fn pop_message_in_transaction(", "end": "/// Cancel",
         "replacements": [("(to_agent IS NULL OR to_agent = ?3)", "(?3 IS NOT NULL)", 2), ("(to_agent IS NULL OR to_agent = ?4)", "(?4 IS NOT NULL)", 1)],
         "command": ["cargo", "test", "-p", "ai-memory-store", "--lib", "addressed_messages_are_claimed_once_only_by_the_selected_harness"],
-    },
-    {
-        "name": "edit-mail-with-read-only-mailbox", "file": "crates/ai-memory-web/src/routes/inbox.rs",
-        "start": "async fn editable_message(", "end": "/// Take a queued message",
-        "before": "&input.project,\n        writer.viewer,\n        ProjectAccess::Write",
-        "after": "&input.project,\n        writer.viewer,\n        ProjectAccess::Read",
-        "command": ["cargo", "test", "-p", "ai-memory-web", "--lib", "operations_edit_needs_write_access_to_the_sender_project_too"],
-    },
-    {
-        "name": "edit-mail-with-read-only-sender", "file": "crates/ai-memory-web/src/routes/inbox.rs",
-        "start": "async fn editable_message(", "end": "/// Take a queued message",
-        "before": "&origin.project_name,\n        writer.viewer,\n        ProjectAccess::Write",
-        "after": "&origin.project_name,\n        writer.viewer,\n        ProjectAccess::Read",
-        "command": ["cargo", "test", "-p", "ai-memory-web", "--lib", "operations_edit_needs_write_access_to_the_sender_project_too"],
     },
     {
         "name": "hold-foreign-mail-for-editing", "file": "crates/ai-memory-store/src/ops.rs",

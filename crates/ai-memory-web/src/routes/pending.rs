@@ -132,7 +132,7 @@ pub(crate) async fn handler(
                 .unwrap_or_else(|| "Equipe".into())
         };
         let mut avs = e.avaliacoes.clone();
-        avs.sort_by(|a, b| b.em.cmp(&a.em));
+        avs.sort_by_key(|av| std::cmp::Reverse(av.em));
         let av_rows: Vec<EstacaoAvaliacaoRow> = avs
             .into_iter()
             .take(30)
@@ -154,7 +154,7 @@ pub(crate) async fn handler(
             .filter(|t| t.status == "concluida")
             .cloned()
             .collect();
-        concluidas.sort_by(|a, b| b.atualizado.cmp(&a.atualizado));
+        concluidas.sort_by_key(|t| std::cmp::Reverse(t.atualizado));
         let tf_rows: Vec<EstacaoTarefaRow> = concluidas
             .into_iter()
             .take(30)

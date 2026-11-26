@@ -1,7 +1,7 @@
 {
   "name": "estacao-ai",
   "displayName": "estacao-ai",
-  "version": "3.4.7",
+  "version": "1.7.1",
   "description": "Long-term memory across sessions and harnesses. Hands each lifecycle event to the installed estacao-ai binary, which applies your capture exclusions and sends a sanitized record only to your estacao-ai server (default http://127.0.0.1:49374). Adds the estacao-ai MCP tools. No telemetry. Requires the estacao-ai binary, 3.0 or later. In Cowork, capture runs on your computer and needs estacao-ai installed there; the memory tools still work.",
   "author": {
     "name": "AkitaOnRails",

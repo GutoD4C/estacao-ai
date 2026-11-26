@@ -647,11 +647,14 @@ mod tests {
             .map(|v| v.to_str().unwrap())
             .collect();
         assert!(
-            set_cookies.contains(&"estacao_dispositivo=; Path=/web; HttpOnly; SameSite=Strict; Max-Age=0"),
+            set_cookies
+                .contains(&"estacao_dispositivo=; Path=/web; HttpOnly; SameSite=Strict; Max-Age=0"),
             "{set_cookies:?}"
         );
         assert!(
-            set_cookies.contains(&"estacao_dispositivo=; Path=/web/; HttpOnly; SameSite=Strict; Max-Age=0"),
+            set_cookies.contains(
+                &"estacao_dispositivo=; Path=/web/; HttpOnly; SameSite=Strict; Max-Age=0"
+            ),
             "{set_cookies:?}"
         );
         assert!(

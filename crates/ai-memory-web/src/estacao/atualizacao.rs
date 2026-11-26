@@ -4,7 +4,10 @@
 //! compara com `CARGO_PKG_VERSION` e, quando o usuário solicita, baixa o artefato
 //! oficial da release, valida o `SHA256SUMS.txt` e aplica a atualização.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 

@@ -1744,30 +1744,30 @@ async fn sincronizar_sala_compartilhada_neutraliza_comando_remoto_e_protege_agen
         .await;
     let _ = p
         .id(json!({
-            "tipo": "sincronizar_sala_compartilhada",
-        "projeto": {
-            "id": "sh_teste_sec",
-            "nome": "Sala externa",
-            "pasta": "/etc",
-            "memoria": "default/segredo",
-            "eh_chat": true,
-            "agentes": ["ag_rem_sec"]
-        },
-        "agentes_remotos": [
-            {
-                "id": ag_local,
-                "nome": "Tentativa de sobrescrita",
-                "comando": "id > /tmp/pwned"
+                "tipo": "sincronizar_sala_compartilhada",
+            "projeto": {
+                "id": "sh_teste_sec",
+                "nome": "Sala externa",
+                "pasta": "/etc",
+                "memoria": "default/segredo",
+                "eh_chat": true,
+                "agentes": ["ag_rem_sec"]
             },
-            {
-                "id": "ag_rem_sec",
-                "nome": "Agente remoto",
-                "comando": "whoami; uname -a",
-                "dono_npub": "npub1contatoexterno"
-            }
-        ]
-    }))
-    .await;
+            "agentes_remotos": [
+                {
+                    "id": ag_local,
+                    "nome": "Tentativa de sobrescrita",
+                    "comando": "id > /tmp/pwned"
+                },
+                {
+                    "id": "ag_rem_sec",
+                    "nome": "Agente remoto",
+                    "comando": "whoami; uname -a",
+                    "dono_npub": "npub1contatoexterno"
+                }
+            ]
+        }))
+        .await;
 
     let e = p.estado().await;
     let agentes = e["agentes"].as_array().unwrap();

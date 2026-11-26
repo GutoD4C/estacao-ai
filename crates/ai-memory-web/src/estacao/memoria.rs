@@ -475,7 +475,7 @@ pub(crate) async fn api_estante(
             .iter()
             .filter(|t| t.status == "concluida")
             .collect();
-        concluidas.sort_by(|a, b| b.atualizado.cmp(&a.atualizado));
+        concluidas.sort_by_key(|t| std::cmp::Reverse(t.atualizado));
         for (i, t) in concluidas.into_iter().take(40).enumerate() {
             let mut corpo = String::new();
             if !t.descricao.trim().is_empty() {
@@ -522,10 +522,11 @@ pub(crate) async fn api_estante(
             max_b.cmp(&max_a)
         });
         for (i, (pid, mut avs)) in salas_debate.into_iter().take(20).enumerate() {
-            avs.sort_by(|a, b| b.em.cmp(&a.em));
+            avs.sort_by_key(|av| std::cmp::Reverse(av.em));
             let proj_nome = nome_proj(&pid);
             let data = avs.first().map(|a| a.em).unwrap_or(0);
-            let mut corpo = format!("Síntese de avaliações registradas na sala \"{proj_nome}\":\n\n");
+            let mut corpo =
+                format!("Síntese de avaliações registradas na sala \"{proj_nome}\":\n\n");
             for av in avs.iter().take(12) {
                 corpo.push_str(&format!(
                     "• {} — Média {:.1}/10 (Clareza {}, Fundamentação {}, Colaboração {})\n",
@@ -603,6 +604,10 @@ pub(crate) async fn api_estante(
         }
     }
 
-    livros.sort_by(|a, b| b.data.cmp(&a.data));
-    ([("cache-control", "no-store")], Json(EstanteResposta { livros })).into_response()
+    livros.sort_by_key(|lv| std::cmp::Reverse(lv.data));
+    (
+        [("cache-control", "no-store")],
+        Json(EstanteResposta { livros }),
+    )
+        .into_response()
 }

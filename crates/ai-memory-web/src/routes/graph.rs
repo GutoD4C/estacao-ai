@@ -173,24 +173,14 @@ async fn build_estacao_graph(
         raw_nodes: &mut Vec<RawNode>,
         index: &mut BTreeMap<String, usize>,
         key: String,
-        label: String,
-        tooltip: String,
-        href: String,
-        color: &'static str,
-        kind: &'static str,
+        node: RawNode,
     ) -> usize {
         if let Some(&idx) = index.get(&key) {
             return idx;
         }
         let idx = raw_nodes.len();
         index.insert(key, idx);
-        raw_nodes.push(RawNode {
-            label,
-            tooltip,
-            href,
-            color,
-            kind,
-        });
+        raw_nodes.push(node);
         idx
     }
 
@@ -206,11 +196,13 @@ async fn build_estacao_graph(
                 &mut raw_nodes,
                 &mut index,
                 format!("ag:{}", ag.id),
-                ag.nome.clone(),
-                format!("Agente: {} ({})", ag.nome, ag.modelo),
-                "modelos".into(),
-                "#10b981",
-                "Agente",
+                RawNode {
+                    label: ag.nome.clone(),
+                    tooltip: format!("Agente: {} ({})", ag.nome, ag.modelo),
+                    href: "modelos".into(),
+                    color: "#10b981",
+                    kind: "Agente",
+                },
             );
         }
         for p in e.projetos.iter().take(14) {
@@ -219,19 +211,17 @@ async fn build_estacao_graph(
                 &mut raw_nodes,
                 &mut index,
                 format!("pr:{}", p.id),
-                p.nome.clone(),
-                format!(
-                    "{}: {}",
-                    if is_chat { "Chat" } else { "Projeto" },
-                    p.nome
-                ),
-                if is_chat {
-                    "chat".into()
-                } else {
-                    format!("projetos/{}", encode_segment(&p.id))
+                RawNode {
+                    label: p.nome.clone(),
+                    tooltip: format!("{}: {}", if is_chat { "Chat" } else { "Projeto" }, p.nome),
+                    href: if is_chat {
+                        "chat".into()
+                    } else {
+                        format!("projetos/{}", encode_segment(&p.id))
+                    },
+                    color: if is_chat { "#d97706" } else { "#2563eb" },
+                    kind: if is_chat { "Chat" } else { "Projeto" },
                 },
-                if is_chat { "#d97706" } else { "#2563eb" },
-                if is_chat { "Chat" } else { "Projeto" },
             );
             for ag_id in &p.agentes {
                 if let Some(&ag_idx) = index.get(&format!("ag:{ag_id}")) {
@@ -245,11 +235,13 @@ async fn build_estacao_graph(
                     &mut raw_nodes,
                     &mut index,
                     format!("mem:{ws}/{proj}"),
-                    format!("{ws}/{proj}"),
-                    format!("Memória ligada: {ws}/{proj}"),
-                    graph_href(ws, proj),
-                    "#06b6d4",
-                    "Memória",
+                    RawNode {
+                        label: format!("{ws}/{proj}"),
+                        tooltip: format!("Memória ligada: {ws}/{proj}"),
+                        href: graph_href(ws, proj),
+                        color: "#06b6d4",
+                        kind: "Memória",
+                    },
                 );
                 raw_edges.push((p_idx, m_idx));
             }
@@ -264,11 +256,13 @@ async fn build_estacao_graph(
                 &mut raw_nodes,
                 &mut index,
                 format!("tf:{}", t.id),
-                t.titulo.clone(),
-                format!("Tarefa concluída: {}", t.titulo),
-                format!("projetos/{}", encode_segment(&t.projeto)),
-                "#8b5cf6",
-                "Concluída",
+                RawNode {
+                    label: t.titulo.clone(),
+                    tooltip: format!("Tarefa concluída: {}", t.titulo),
+                    href: format!("projetos/{}", encode_segment(&t.projeto)),
+                    color: "#8b5cf6",
+                    kind: "Concluída",
+                },
             );
             if let Some(&p_idx) = index.get(&format!("pr:{}", t.projeto)) {
                 raw_edges.push((p_idx, t_idx));
@@ -312,21 +306,25 @@ async fn build_estacao_graph(
             &mut raw_nodes,
             &mut index,
             format!("mem:{ws}/{proj}"),
-            format!("{ws}/{proj}"),
-            format!("Memória: {ws}/{proj}"),
-            graph_href(&ws, &proj),
-            "#06b6d4",
-            "Memória",
+            RawNode {
+                label: format!("{ws}/{proj}"),
+                tooltip: format!("Memória: {ws}/{proj}"),
+                href: graph_href(&ws, &proj),
+                color: "#06b6d4",
+                kind: "Memória",
+            },
         );
         let pg_idx = add_node(
             &mut raw_nodes,
             &mut index,
             format!("pg:{ws}/{proj}/{path}"),
-            title.clone(),
-            format!("Página de memória: {title} ({ws}/{proj})"),
-            page_href(&ws, &proj, &path),
-            "#0ea5e9",
-            "Página",
+            RawNode {
+                label: title.clone(),
+                tooltip: format!("Página de memória: {title} ({ws}/{proj})"),
+                href: page_href(&ws, &proj, &path),
+                color: "#0ea5e9",
+                kind: "Página",
+            },
         );
         raw_edges.push((scope_idx, pg_idx));
     }

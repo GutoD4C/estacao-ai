@@ -365,9 +365,6 @@
               src = ./.;
               cargoLock = {
                 lockFile = ./Cargo.lock;
-                outputHashes = {
-                  "zip-8.6.0" = "sha256-cnLvGK9nhGeYqJYA6kjlYTYChH0fXs2q27rWvHEZWpg=";
-                };
               };
 
               # No nativeBuildInputs needed — the build is fully self-contained
