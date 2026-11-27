@@ -26,7 +26,7 @@ use crate::config::Config;
 
 const AUTO_SETUP_MARKER: &str = ".auto-setup-v1";
 
-pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
+pub async fn run(config: &Config, args: AppArgs, config_path: Option<&Path>) -> Result<()> {
     let _ = std::fs::create_dir_all(&config.data_dir);
 
     #[cfg(windows)]
@@ -65,7 +65,10 @@ pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
 
     if already_running {
         if !args.no_open {
-            open_desktop_window(&app_url, &config.data_dir);
+            super::windows_tray::ensure_detached_tray(&config.data_dir, &exe_path, config_path);
+            if !super::windows_tray::restore_if_running(&config.data_dir) {
+                open_desktop_window(&app_url, &config.data_dir);
+            }
         }
         println!("Estação-ai ativa em: {app_url}");
         return Ok(());
@@ -80,7 +83,10 @@ pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
                 .await
                 .is_ok_and(|r| r.status().is_success())
             {
-                open_desktop_window(&app_url, &config.data_dir);
+                super::windows_tray::ensure_detached_tray(&config.data_dir, &exe_path, config_path);
+                if !super::windows_tray::restore_if_running(&config.data_dir) {
+                    open_desktop_window(&app_url, &config.data_dir);
+                }
                 println!("Estação-ai ativa em: {app_url}");
                 return Ok(());
             }
@@ -91,6 +97,8 @@ pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
     let poll_health = health_url.clone();
     let launch_url = app_url.clone();
     let data_dir = config.data_dir.clone();
+    let tray_exe = exe_path.clone();
+    let tray_cfg = config_path.map(Path::to_path_buf);
     let no_open = args.no_open;
     tokio::spawn(async move {
         for _ in 0..60 {
@@ -102,7 +110,14 @@ pub async fn run(config: &Config, args: AppArgs) -> Result<()> {
                 .is_ok_and(|r| r.status().is_success())
             {
                 if !no_open {
-                    open_desktop_window(&launch_url, &data_dir);
+                    super::windows_tray::ensure_detached_tray(
+                        &data_dir,
+                        &tray_exe,
+                        tray_cfg.as_deref(),
+                    );
+                    if !super::windows_tray::restore_if_running(&data_dir) {
+                        open_desktop_window(&launch_url, &data_dir);
+                    }
                 }
                 break;
             }

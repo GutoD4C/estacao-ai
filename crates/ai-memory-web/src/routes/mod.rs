@@ -215,6 +215,7 @@ pub(crate) fn build_public_auth(cfg: Arc<HtmlAuthRedirectConfig>) -> Router {
                 "/static/estacao-memoria.js",
                 get(statics::estacao_memoria_js),
             )
+            .route("/static/estacao-grafo.js", get(statics::estacao_grafo_js))
             .route(
                 "/static/estacao-3d-cena.js",
                 get(statics::estacao_3d_cena_js),

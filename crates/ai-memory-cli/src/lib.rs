@@ -143,7 +143,10 @@ async fn dispatch(
     }
 
     match command {
-        Command::App(args) => commands::app::run(&config, args).await,
+        Command::App(args) => commands::app::run(&config, args, config_path.as_deref()).await,
+        Command::Tray(args) => {
+            commands::windows_tray::run_tray(&config, &args, config_path.as_deref())
+        }
         Command::Init(args) => commands::init::run(&config, args, config_path.as_deref()),
         Command::Setup(args) => commands::setup::run(&config, args, config_path.as_deref()).await,
         Command::ServiceHost(args) => {

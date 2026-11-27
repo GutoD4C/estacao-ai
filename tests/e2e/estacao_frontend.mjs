@@ -255,13 +255,13 @@ function parseNamedExports(source) {
 // (a) Verificação de sintaxe e contrato de imports/exports
 // ---------------------------------------------------------------------------
 
-test("sintaxe válida em todos os 8 scripts estacao*.js e contrato de imports em estacao.js", async () => {
+test("sintaxe válida em todos os 9 scripts estacao*.js e contrato de imports em estacao.js", async () => {
   const staticPath = fileURLToPath(STATIC_DIR);
   const files = readdirSync(staticPath)
     .filter((name) => /^estacao.*\.js$/.test(name))
     .sort();
 
-  assert.equal(files.length, 8, `esperados 8 arquivos estacao*.js, encontrados: ${files.join(", ")}`);
+  assert.equal(files.length, 9, `esperados 9 arquivos estacao*.js, encontrados: ${files.join(", ")}`);
 
   for (const file of files) {
     const absPath = fileURLToPath(new URL(file, STATIC_DIR));

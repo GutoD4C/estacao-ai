@@ -34,7 +34,7 @@
 {% endif %}
 
 {% if has_estacao_nodes %}
-<div class="mb-6 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+<div id="estacao-grafo-static-legend" class="mb-6 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
   <span class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#2563eb"></span>Projetos</span>
   <span class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#d97706"></span>Chats</span>
   <span class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#10b981"></span>Agentes</span>
@@ -46,23 +46,25 @@
 {% if svg_nodes.is_empty() %}
 <p class="text-sm text-slate-500 dark:text-slate-400">{{ i18n.label(empty_message) }}</p>
 {% else %}
-<div class="mb-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 shadow-sm">
-<svg viewBox="0 0 800 800" class="w-full max-w-3xl mx-auto text-slate-700 dark:text-slate-200" role="img" aria-labelledby="graph-heading">
-  <title id="graph-heading">{{ i18n.label(heading) }}</title>
-  {% for edge in svg_edges %}
-  <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}" stroke="currentColor" stroke-opacity="0.32" stroke-width="1.6" />
-  {% endfor %}
-  {% for node in svg_nodes %}
-  <a href="{{ node.href }}">
-    <g>
-      <title>{{ node.tooltip }}</title>
-      <circle cx="{{ node.x }}" cy="{{ node.y }}" r="13" fill="{{ node.color }}" stroke="#ffffff" stroke-width="2" />
-      <text x="{{ node.x }}" y="{{ node.label_y }}" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">{{ node.label }}</text>
-    </g>
-  </a>
-  {% endfor %}
-</svg>
+<div id="estacao-grafo-container" class="mb-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 shadow-sm">
+  <div id="estacao-grafo-neural"></div>
+  <svg id="estacao-grafo-svg" viewBox="0 0 800 800" class="w-full max-w-3xl mx-auto text-slate-700 dark:text-slate-200" role="img" aria-labelledby="graph-heading" data-mode="{% if is_project %}project{% else %}global{% endif %}">
+    <title id="graph-heading">{{ i18n.label(heading) }}</title>
+    {% for edge in svg_edges %}
+    <line data-from="{{ edge.from_idx }}" data-to="{{ edge.to_idx }}" x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}" stroke="currentColor" stroke-opacity="0.32" stroke-width="1.6" />
+    {% endfor %}
+    {% for node in svg_nodes %}
+    <a href="{{ node.href }}">
+      <g data-idx="{{ loop.index0 }}" data-href="{{ node.href }}" data-label="{{ node.label }}" data-tooltip="{{ node.tooltip }}" data-color="{{ node.color }}" data-kind="{{ node.kind }}">
+        <title>{{ node.tooltip }}</title>
+        <circle cx="{{ node.x }}" cy="{{ node.y }}" r="13" fill="{{ node.color }}" stroke="#ffffff" stroke-width="2" />
+        <text x="{{ node.x }}" y="{{ node.label_y }}" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">{{ node.label }}</text>
+      </g>
+    </a>
+    {% endfor %}
+  </svg>
 </div>
+<script type="module" src="static/estacao-grafo.js"></script>
 {% endif %}
 
 {% if !project_graphs.is_empty() %}

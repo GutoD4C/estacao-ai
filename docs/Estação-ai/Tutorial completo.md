@@ -1,16 +1,16 @@
 # Tutorial da Estação I.A
 
-Este guia acompanha uma sessão de exemplo, da instalação à primeira tarefa. A versão atual do sistema é a **1.7.5**.
+Este guia acompanha uma sessão de exemplo, da instalação à primeira tarefa. A versão atual do sistema é a **1.7.6**.
 
 ## 1. Instalação e execução
 
-**Debian ou Ubuntu amd64.** Abra o pacote na central de aplicativos ou, na pasta do download, execute o comando abaixo. O APT resolve as dependências e instala o atalho no menu de aplicativos e na área de trabalho. [Baixar o pacote Debian 1.7.5](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.5/estacao-ai_1.7.5_amd64.deb)
+**Debian ou Ubuntu amd64.** Abra o pacote na central de aplicativos ou, na pasta do download, execute o comando abaixo. O APT resolve as dependências e instala o atalho no menu de aplicativos e na área de trabalho. [Baixar o pacote Debian 1.7.6](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.6/estacao-ai_1.7.6_amd64.deb)
 
 ```sh
-sudo apt install ./estacao-ai_1.7.5_amd64.deb
+sudo apt install ./estacao-ai_1.7.6_amd64.deb
 ```
 
-**Windows 10 e 11 x64.** Baixe e execute o [instalador Windows (.exe) 1.7.5](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.5/Estacao-ai-Setup-win10-11-x64.exe) com sua conta habitual (sem precisar compilar nem usar comandos; também disponível como [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.5/Estacao-ai-win10-11-x64.exe)) e abra **Estação-ai** na Área de Trabalho ou no Menu Iniciar.
+**Windows 10 e 11 x64.** Baixe e execute o [instalador Windows (.exe) 1.7.6](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.6/Estacao-ai-Setup-win10-11-x64.exe) com sua conta habitual (sem precisar compilar nem usar comandos; também disponível como [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.6/Estacao-ai-win10-11-x64.exe)) e abra **Estação-ai** na Área de Trabalho ou no Menu Iniciar.
 
 O instalador cria o atalho executando `estacao-ai app`. Ele inicia o serviço local em loopback (`127.0.0.1:49374`, usado apenas pela aplicação desktop, MCP e hooks locais) e abre a **janela desktop dedicada da Estação I.A** (atualmente em janela isolada de aplicação, com migração em andamento para uma versão desktop nativa e independente sem uso do Tauri v2). Você também pode acessar diretamente via navegador em [http://127.0.0.1:49374/web/chat](http://127.0.0.1:49374/web/chat).
 
@@ -109,4 +109,4 @@ Os agentes utilizam o sistema de memória persistente da Estação:
 | O QR Code NIP-46 expirou | Limite de tempo de segurança (2 minutos) atingido | Clique em gerar novo QR Code e aprove a autorização no aplicativo do celular. |
 | O terminal fecha ou rejeita comandos interativos | Comandos com prompt interativo (como `sudo` ou editores `vim`/`nano`) | Execute comandos interativos no terminal nativo do seu sistema operacional. |
 
-Os pacotes oficiais, notas de atualização e somas de verificação SHA-256 estão disponíveis na [página de releases da versão 1.7.5](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.5).
+Os pacotes oficiais, notas de atualização e somas de verificação SHA-256 estão disponíveis na [página de releases da versão 1.7.6](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.6).

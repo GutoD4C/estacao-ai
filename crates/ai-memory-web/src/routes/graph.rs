@@ -356,7 +356,7 @@ async fn build_estacao_graph(
         }
         let pair = if from <= to { (from, to) } else { (to, from) };
         if drawn.insert(pair) {
-            svg_edges.push(svg_line(&coords[from], &coords[to]));
+            svg_edges.push(svg_line(from, to, &coords[from], &coords[to]));
             rows.push(GraphEdgeRow {
                 from_href: raw_nodes[from].href.clone(),
                 from_label: format!("[{}] {}", raw_nodes[from].kind, raw_nodes[from].label),
@@ -451,7 +451,7 @@ fn aggregate_projects(
         };
         let pair = if from <= to { (from, to) } else { (to, from) };
         if from != to && drawn.insert(pair) {
-            svg_edges.push(svg_line(&coords[from], &coords[to]));
+            svg_edges.push(svg_line(from, to, &coords[from], &coords[to]));
         }
     }
 
@@ -470,6 +470,22 @@ fn aggregate_projects(
     (svg_nodes, svg_edges, rows)
 }
 
+fn classify_page_node(path: &str) -> (&'static str, &'static str) {
+    if path.starts_with("_rules/") {
+        ("Regra", "#f43f5e")
+    } else if path.starts_with("decisions/") {
+        ("Decisão", "#8b5cf6")
+    } else if path.starts_with("gotchas/") {
+        ("Alerta", "#f59e0b")
+    } else if path.starts_with("concepts/") {
+        ("Conceito", "#06b6d4")
+    } else if path.starts_with("sessions/") {
+        ("Sessão", "#10b981")
+    } else {
+        ("Nota", "#3b82f6")
+    }
+}
+
 fn layout_pages(
     workspace: &str,
     project: &str,
@@ -484,15 +500,16 @@ fn layout_pages(
         .map(|(i, node)| {
             index.insert(node.path.as_str(), i);
             let (x, y) = coords[i];
+            let (kind, color) = classify_page_node(&node.path);
             GraphSvgNode {
                 href: page_href(workspace, project, &node.path),
-                tooltip: node.title.clone(),
+                tooltip: format!("[{kind}] {} — {}", node.title, node.path),
                 label: truncate_label(&node.title, SVG_LABEL_CHARS),
                 x: x.round() as i32,
                 y: y.round() as i32,
                 label_y: (y + 22.0).round() as i32,
-                color: "#2563eb",
-                kind: "Projeto",
+                color,
+                kind,
             }
         })
         .collect();
@@ -505,14 +522,16 @@ fn layout_pages(
             if from == to {
                 return None;
             }
-            Some(svg_line(&coords[from], &coords[to]))
+            Some(svg_line(from, to, &coords[from], &coords[to]))
         })
         .collect();
     (svg_nodes, svg_edges)
 }
 
-fn svg_line(from: &(f64, f64), to: &(f64, f64)) -> GraphSvgEdge {
+fn svg_line(from_idx: usize, to_idx: usize, from: &(f64, f64), to: &(f64, f64)) -> GraphSvgEdge {
     GraphSvgEdge {
+        from_idx,
+        to_idx,
         x1: from.0.round() as i32,
         y1: from.1.round() as i32,
         x2: to.0.round() as i32,
