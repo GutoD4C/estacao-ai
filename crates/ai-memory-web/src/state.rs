@@ -64,7 +64,7 @@ impl WebState {
     }
 
     /// Signal the hosting HTTP server to drain and exit cleanly.
-    pub(crate) fn request_shutdown(&self) {
+    pub fn request_shutdown(&self) {
         if let Some(notify) = self.shutdown.get() {
             notify.notify_one();
         }

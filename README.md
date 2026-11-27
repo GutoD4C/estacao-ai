@@ -4,44 +4,18 @@
 >
 > A Estação I.A foi construída a partir do [ai-memory](https://github.com/akitaonrails/ai-memory), criado por **Fabio Akita**. A ferramenta fornece a memória persistente usada pelos agentes da Estação.
 
-A Estação I.A reúne suas ferramentas de inteligência artificial em um **aplicativo desktop local** (janela própria, sem depender de abas do navegador) rodando diretamente com as CLIs instaladas no seu computador (como **Claude Code**, **Codex CLI**, **Gemini CLI**, **Antigravity**, **OpenCode**, **Pi**, **Ollama** e agentes customizados) na **versão 1.7.4 (em preparação)**.
+A Estação I.A reúne suas ferramentas de inteligência artificial em um **aplicativo desktop local** (janela própria, sem depender de abas do navegador) rodando diretamente com as CLIs instaladas no seu computador (como **Claude Code**, **Codex CLI**, **Gemini CLI**, **Antigravity**, **OpenCode**, **Pi**, **Ollama** e agentes customizados).
 
-**Release mais recente · 1.7.3**  [Baixar para Windows (.exe)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/Estacao-ai-Setup-win10-11-x64.exe)  ·  [Baixar para Debian/Ubuntu (.deb)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/estacao-ai_1.7.3_amd64.deb)  ·  [Notas e arquivos da release](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.3)
+**Release mais recente · 1.7.4**  [Baixar para Windows (.exe)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.4/Estacao-ai-Setup-win10-11-x64.exe)  ·  [Baixar para Debian/Ubuntu (.deb)](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.4/estacao-ai_1.7.4_amd64.deb)  ·  [Notas e arquivos da release](https://github.com/GutoD4C/estacao-ai/releases/tag/estacao-1.7.4)
 
 ![Agentes reunidos no Chalé 3D da Estação I.A](docs/images/modelo-001/chale.png)
-
-## Novas versões
-
-### v1.7.4 (em preparação)
-
-- Login Nostr lembrado por 30 dias, com restauração ao reabrir o aplicativo e prazo preservado após reiniciar.
-- Ícone na bandeja do Windows para reabrir a janela ou encerrar o serviço e as janelas do aplicativo.
-- Fechamento da versão em execução antes de substituir os arquivos durante uma atualização.
-- Transferência do conhecimento entre computadores: páginas, regras, aprendizados, entidades e relações do grafo, sem o antigo corte de 10.000 páginas por projeto.
-
-> Esta seção destaca, em ordem da mais recente para as anteriores, o que foi adicionado ou corrigido em cada lançamento da Estação I.A. O histórico completo de mudanças técnicas fica em [`CHANGELOG.md`](CHANGELOG.md).
-
-### v1.7.3 (2026-11-25)
-
-- **Exportar, importar, verificar e excluir Memória dos Projetos**: nova seção **Memórias dos Projetos** na tela **Projetos** com marcação **Selecionar todas** ou por projeto, download de backups em `.json` (`estacao-ai-memoria-v1`), modal de importação com pré-visualização das páginas e escolha entre **Mesclar** ou **Substituir**, janela de **Verificação** individual (páginas consolidadas, conteúdo completo e sessões) e **Exclusão** individual com proteção automática da memória global (`default/_global`).
-- **Reconhecimento aprimorado do Codex CLI no Windows**: detecção automática mesmo fora do `PATH` padrão (`%USERPROFILE%`, `%LOCALAPPDATA%`, `%APPDATA%`, `ProgramFiles`, `WindowsApps`/MSIX e `CODEX_HOME`), ajuste da verificação de hooks do Codex no `doctor`/`setup` e recarregamento automático do catálogo em caso de falha transitória.
-- **Documentação renovada**: adicionada esta seção de versões no topo e guia completo de todas as funcionalidades da Estação I.A abaixo.
-
-### v1.7.2 (2026-11-25)
-
-- **Abertura nativa como aplicativo no Windows**: descoberta automática do navegador em `--app=` fora do `PATH`, inicialização em segundo plano sem janela de console aberta e script `iniciar.ps1` alinhado ao modo aplicativo.
-- **Smart TV 3D (YouTube) e refinamentos visuais**: busca e reprodução na cena 3D, correção no carregamento sem CLIs instaladas, script de statusline para Windows e atualizações de segurança nas dependências (`libz-sys`, `url`, `rustix`).
-
-### v1.7.1 (2026-11-25)
-
-- **Segurança e robustez**: atualização para `zip 9.8.2` + `candle 0.11.1`, blindagem de comandos remotos em salas compartilhadas Nostr, verificação obrigatória de integridade (`SHA256SUMS.txt`) no auto-atualizador e limites na busca do YouTube.
 
 ## Instalação e abertura
 
 | Sistema | Instalação | Como abrir |
 | --- | --- | --- |
-| Debian, Ubuntu ou derivados, amd64 | Abra o [pacote .deb 1.7.3](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/estacao-ai_1.7.3_amd64.deb) no instalador de aplicativos ou execute `sudo apt install ./estacao-ai_1.7.3_amd64.deb` na pasta do download. | Use o atalho **Estação-ai** na área de trabalho ou procure o aplicativo no menu. |
-| Windows 10 ou 11, x64 | Baixe e execute o [instalador Windows (.exe) 1.7.3](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/Estacao-ai-Setup-win10-11-x64.exe) (não precisa compilar nem abrir terminal; também há o [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.3/Estacao-ai-win10-11-x64.exe)). | Dê dois cliques em **Estação-ai** na Área de Trabalho ou use o Menu Iniciar. |
+| Debian, Ubuntu ou derivados, amd64 | Abra o [pacote .deb 1.7.4](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.4/estacao-ai_1.7.4_amd64.deb) no instalador de aplicativos ou execute `sudo apt install ./estacao-ai_1.7.4_amd64.deb` na pasta do download. | Use o atalho **Estação-ai** na área de trabalho ou procure o aplicativo no menu. |
+| Windows 10 ou 11, x64 | Baixe e execute o [instalador Windows (.exe) 1.7.4](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.4/Estacao-ai-Setup-win10-11-x64.exe) (não precisa compilar nem abrir terminal; também há o [executável portátil](https://github.com/GutoD4C/estacao-ai/releases/download/estacao-1.7.4/Estacao-ai-win10-11-x64.exe)). | Dê dois cliques em **Estação-ai** na Área de Trabalho ou use o Menu Iniciar. |
 
 O atalho inicia o serviço local em loopback (`127.0.0.1:49374`, usado apenas pelo aplicativo desktop, MCP e hooks locais) e abre a **janela desktop dedicada da Estação I.A**.
 
