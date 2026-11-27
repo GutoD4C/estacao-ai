@@ -450,6 +450,20 @@ pub enum Command {
     // Launch the Estação-ai desktop application (starts local server if needed and opens window).
     #[command(hide = true, name = "app")]
     App(AppArgs),
+    /// Hidden system-tray icon host for minimizing, restoring, and closing the desktop app
+    #[command(hide = true, name = "tray")]
+    Tray(TrayArgs),
+}
+
+// Arguments for `tray`.
+#[derive(Debug, Clone, Default, Args)]
+pub struct TrayArgs {
+    /// Exit when the parent process exits; omit for detached desktop tray lifetime
+    #[arg(long)]
+    pub parent_pid: Option<u32>,
+    /// Stop marker file created when closing the background server from the tray
+    #[arg(long)]
+    pub stop_file: Option<PathBuf>,
 }
 
 // Arguments for `app`.

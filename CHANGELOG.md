@@ -8,6 +8,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.6] — 2026-11-27
+
+### Added
+
+- Novo visualizador neural interativo estilo Obsidian para o **Grafo de conhecimento** ([`estacao-grafo.js`](crates/ai-memory-web/static/estacao-grafo.js)), com simulação force-directed amortecida, brilho neural por conexões, destaque de vizinhança no foco, rótulos anti-colisão legíveis, zoom/pan, busca instantânea, filtros por categoria, painel inspetor lateral de conexões, ajustes de física em tempo real e modo **Expandir grafo** em tela cheia.
+- Adicionado suporte à bandeja do sistema (área de tarefas) no Linux (`AyatanaAppIndicator3` / `Gtk.StatusIcon`) além do Windows em [`windows_tray.rs`](crates/ai-memory-cli/src/commands/windows_tray.rs), com subcomando residente `tray`.
+
+### Changed
+
+- Ao minimizar ou executar o aplicativo já rodando (`estacao-ai app`), a janela é minimizada para a área de notificação/bandeja da barra de tarefas (evitando janelas duplicadas), e o menu de contexto (botão direito) no ícone permite **Abrir Estação I.A**, **Minimizar para a área de tarefas** e **Fechar Estação I.A de vez**.
+- Classificação cromática automática por categoria de memória (`Regra`, `Decisão`, `Alerta`, `Conceito`, `Sessão`, `Nota`) e metadados `data-*` no grafo SSR ([`graph.rs`](crates/ai-memory-web/src/routes/graph.rs)).
+
 ## [1.7.5] — 2026-11-27
 
 ### Changed

@@ -1012,13 +1012,16 @@ pub(crate) struct GraphSvgNode {
     pub label_y: i32,
     /// Fill color hex for the node circle.
     pub color: &'static str,
-    /// Node category label (Projeto, Chat, Agente, Tarefa, Memória).
-    #[allow(dead_code)]
+    /// Node category label (Projeto, Chat, Agente, Tarefa, Memória, etc.).
     pub kind: &'static str,
 }
 
 /// One SVG line between two graph nodes.
 pub(crate) struct GraphSvgEdge {
+    /// Source node index inside `svg_nodes`.
+    pub from_idx: usize,
+    /// Target node index inside `svg_nodes`.
+    pub to_idx: usize,
     /// Start x.
     pub x1: i32,
     /// Start y.

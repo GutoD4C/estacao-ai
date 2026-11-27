@@ -135,6 +135,9 @@ async fn graph_pages_render_svg_and_edge_table() {
     let (status, html) = get(web.clone(), "/w/default/app/graph").await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<svg"), "{html}");
+    assert!(html.contains("static/estacao-grafo.js"), "{html}");
+    assert!(html.contains("data-from=\""), "{html}");
+    assert!(html.contains("data-kind=\"Nota\""), "{html}");
     assert!(html.contains("notes/a.md"), "{html}");
     assert!(html.contains("notes/b.md"), "{html}");
     assert!(
