@@ -1429,6 +1429,249 @@ async fn memorias_exportar_inspecionar_excluir_e_importar_funcionam() {
     assert_eq!(resp_sub_global.status(), StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn memorias_resumo_tudo_revisao_e_substituir_seguro() {
+    use ai_memory_core::{ActorContext, PagePath, Tier};
+    use ai_memory_store::{
+        AutoImproveProposalOperation, NewAutoImproveProposal, StageAutoImproveRun, Store,
+    };
+    use ai_memory_wiki::{Wiki, WritePageRequest};
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(tmp.path()).unwrap();
+    let wiki = Wiki::new(tmp.path(), store.writer.clone()).unwrap();
+
+    let ws_id = store
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let p_alpha = store
+        .writer
+        .get_or_create_project(ws_id, "alpha", Some("/tmp/alpha".into()))
+        .await
+        .unwrap();
+
+    wiki.write_page(WritePageRequest {
+        workspace_id: ws_id,
+        project_id: p_alpha,
+        path: PagePath::new("decisions/grafo.md").unwrap(),
+        frontmatter: serde_json::json!({
+            "kind": "decision",
+            "entities": ["Tokio"],
+            "abstract": "Base assíncrona"
+        }),
+        body: "Usar Tokio como runtime.".into(),
+        tier: Tier::Semantic,
+        pinned: true,
+        title: Some("Runtime Alpha".into()),
+        admission_ctx: None,
+        author_id: None,
+        evidence: Vec::new(),
+        actor: ActorContext::anonymous(),
+    })
+    .await
+    .unwrap();
+
+    store
+        .writer
+        .stage_auto_improve_run(StageAutoImproveRun {
+            workspace_id: ws_id,
+            project_id: p_alpha,
+            session_id: None,
+            provider: Some("codex".into()),
+            model: Some("gpt-5".into()),
+            summary: Some("Revisão pendente".into()),
+            warnings_json: serde_json::json!([]),
+            rejected_candidates_json: serde_json::json!([]),
+            config_json: serde_json::json!({"mode": "stage"}),
+            proposal_actor: ActorContext {
+                agent: Some("auto_improve".into()),
+                ..ActorContext::default()
+            },
+            proposals: vec![NewAutoImproveProposal {
+                operation: AutoImproveProposalOperation::Create,
+                target_path: PagePath::new("notes/licao-nova.md").unwrap(),
+                kind: "note".into(),
+                title: "Lição Pendente".into(),
+                confidence: 0.92,
+                rationale: "Aprendizado importante".into(),
+                evidence_json: serde_json::json!([]),
+                body_markdown: "# Lição Pendente\n\nConteúdo proposto.".into(),
+                artifact_sha256: None,
+                edit_mode: None,
+                patch_json: None,
+                expected_base_body_sha256: None,
+            }],
+        })
+        .await
+        .unwrap();
+
+    let state = Arc::new(crate::WebState::new(store.reader.clone(), wiki));
+    let app = crate::localization::apply(
+        axum::Router::new()
+            .route(
+                "/estacao/api/memorias/resumo",
+                axum::routing::get(super::memoria::api_resumo_memorias),
+            )
+            .route(
+                "/estacao/api/memorias/exportar",
+                axum::routing::post(super::memoria::api_exportar_memorias),
+            )
+            .route(
+                "/estacao/api/memorias/importar",
+                axum::routing::post(super::memoria::api_importar_memorias),
+            )
+            .with_state(state.clone()),
+    );
+
+    let resumo_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/estacao/api/memorias/resumo")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resumo_resp.status(), StatusCode::OK);
+    let resumo_bytes = axum::body::to_bytes(resumo_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let resumo: serde_json::Value = serde_json::from_slice(&resumo_bytes).unwrap();
+    assert_eq!(resumo["total_revisoes_pendentes"], 1);
+    assert!(resumo["total_entidades"].as_u64().unwrap_or(0) >= 1);
+
+    // Exportar tudo com 1 clique
+    let exp_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/exportar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(r#"{"tudo":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exp_resp.status(), StatusCode::OK);
+    let exp_bytes = axum::body::to_bytes(exp_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let pacote: serde_json::Value = serde_json::from_slice(&exp_bytes).unwrap();
+    assert_eq!(pacote["resumo"]["revisoes_pendentes"], 1);
+    assert_eq!(
+        pacote["projetos"][0]["revisoes_aprendizado"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // Importar em outro computador e confirmar revisão de aprendizado + entidades preservadas
+    let destino = tempfile::tempdir().unwrap();
+    let store_dest = Store::open(destino.path()).unwrap();
+    let wiki_dest = Wiki::new(destino.path(), store_dest.writer.clone()).unwrap();
+    let state_dest = Arc::new(crate::WebState::new(store_dest.reader.clone(), wiki_dest));
+    let app_dest = crate::localization::apply(
+        axum::Router::new()
+            .route(
+                "/importar",
+                axum::routing::post(super::memoria::api_importar_memorias),
+            )
+            .with_state(state_dest),
+    );
+    let imp_resp = app_dest
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/importar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(
+                    serde_json::json!({"pacote": pacote}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(imp_resp.status(), StatusCode::OK);
+    let imp_bytes = axum::body::to_bytes(imp_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let imp_json: serde_json::Value = serde_json::from_slice(&imp_bytes).unwrap();
+    assert_eq!(imp_json["revisoes_importadas"], 1);
+    store_dest
+        .reader
+        .with_conn(|conn| {
+            let prop_cnt: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM auto_improve_proposals WHERE status = 'pending'",
+                [],
+                |r| r.get(0),
+            )?;
+            let ent_cnt: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM entities WHERE name = 'tokio'",
+                [],
+                |r| r.get(0),
+            )?;
+            assert_eq!((prop_cnt, ent_cnt), (1, 1));
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    // modo=substituir com frontmatter inválido NÃO pode apagar dados existentes antes de falhar.
+    let fail_sub = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/estacao/api/memorias/importar")
+                .header("content-type", "application/json")
+                .header("x-estacao-ui", "1")
+                .body(Body::from(
+                    serde_json::json!({
+                        "modo": "substituir",
+                        "pacote": {
+                            "versao": 1,
+                            "formato": "estacao-ai-memoria-v1",
+                            "projetos": [{
+                                "escopo": "default/alpha",
+                                "paginas": [{
+                                    "path": "notes/invalida.md",
+                                    "frontmatter": {"entities": "invalido"}
+                                }]
+                            }]
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fail_sub.status(), StatusCode::BAD_REQUEST);
+    store
+        .reader
+        .with_conn(|conn| {
+            let preservadas: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pages WHERE path='decisions/grafo.md' AND is_latest=1",
+                [],
+                |r| r.get(0),
+            )?;
+            assert_eq!(preservadas, 1);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
 mod slow_memoria {
     #[tokio::test]
     async fn exportacao_com_mais_de_dez_mil_paginas_nao_trunca() {

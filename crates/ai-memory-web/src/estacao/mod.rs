@@ -30,7 +30,7 @@ pub(crate) use http::{
 };
 pub(crate) use memoria::{
     api_contexto, api_estante, api_exportar_memorias, api_importar_memorias,
-    api_inspecionar_memoria,
+    api_inspecionar_memoria, api_resumo_memorias,
 };
 pub(crate) use terminal::api_terminal;
 pub(crate) use youtube::api_youtube;

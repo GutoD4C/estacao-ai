@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
@@ -104,7 +104,7 @@ struct EstadoResposta<'a> {
     ferramentas_desativadas: &'a [String],
     nostr_perfil: &'a NostrPerfil,
     nostr_contatos: &'a [NostrContato],
-    presenca_salas: &'a HashMap<String, Vec<String>>,
+    presenca_salas: BTreeMap<&'a str, Vec<&'a str>>,
     seq: u64,
     /// Todos os projetos que a memória conhece, ligados ou não à Estação.
     memorias: Vec<Memoria>,
@@ -154,7 +154,7 @@ pub(crate) async fn api_estado(
         })
         .await
         .unwrap_or_default();
-    let memorias = projetos
+    let mut memorias: Vec<Memoria> = projetos
         .into_iter()
         .map(|p| {
             let escopo = format!("{}/{}", p.workspace_name, p.project_name);
@@ -166,6 +166,16 @@ pub(crate) async fn api_estado(
                 abertas: p.open_session_count,
                 atividade: p.last_activity.or(p.last_updated),
             }
+        })
+        .collect();
+    memorias.sort_by(|a, b| a.escopo.cmp(&b.escopo));
+    let presenca_salas: BTreeMap<&str, Vec<&str>> = estado
+        .presenca_salas
+        .iter()
+        .map(|(k, v)| {
+            let mut lista: Vec<&str> = v.iter().map(String::as_str).collect();
+            lista.sort_unstable();
+            (k.as_str(), lista)
         })
         .collect();
     let cli_ausente = estado
@@ -193,7 +203,7 @@ pub(crate) async fn api_estado(
         ferramentas_desativadas: &estado.ferramentas_desativadas,
         nostr_perfil: &estado.nostr_perfil,
         nostr_contatos: &estado.nostr_contatos,
-        presenca_salas: &estado.presenca_salas,
+        presenca_salas,
         seq: estado.seq,
         memorias,
         cli_ausente,

@@ -825,14 +825,4 @@ body:has(#est[data-bloqueado]) .app-content { margin:0 !important; width:100% !i
 .chalet-chat-body code, .chalet-dlg-md code { background:rgba(255,255,255,.08); padding:1px 4px; border-radius:4px; font-size:.9em; }
 .chalet-chat-body pre, .chalet-dlg-md pre { background:rgba(0,0,0,.35); padding:6px 8px; border-radius:6px; overflow-x:auto; margin:5px 0; }
 
-/* Gestão de Memórias dos Projetos (exportação, importação, verificação e exclusão) */
-.est .modal-card.modal-card-wide { width:min(820px,96vw); }
-.est .mem-list-card { margin-top:10px; }
-.est .mem-list-head { justify-content:space-between; flex-wrap:wrap; gap:10px; }
-.est .mem-check-label { display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:600; color:var(--dash-text); user-select:none; }
-.est .mem-check-label input[type="checkbox"] { width:16px; height:16px; accent-color:var(--dash-accent); cursor:pointer; }
-.est .mem-row-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; flex-shrink:0; }
-.est .mem-inspect-list { display:grid; gap:8px; max-height:46vh; overflow-y:auto; padding-right:2px; }
-.est .mem-inspect-item { border:1px solid var(--dash-line); border-radius:10px; background:var(--dash-bg); padding:10px 12px; display:grid; gap:6px; }
-.est .mem-inspect-body { margin:6px 0 0; padding:10px; border-radius:8px; background:var(--dash-surface); border:1px solid var(--dash-line); font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:240px; overflow-y:auto; }
-.est .mem-import-list { display:grid; gap:8px; max-height:38vh; overflow-y:auto; padding-right:2px; }
+/* Itens de memória no modal de contexto do projeto */

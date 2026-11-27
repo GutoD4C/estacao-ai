@@ -1,8 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use ai_memory_core::{ActorContext, PagePath, Tier, UserId};
-use ai_memory_store::{Compaction, PurgeMode, ScopeResolutionError, StoreError};
+use ai_memory_store::{
+    AutoImproveProposalOperation, Compaction, NewAutoImproveProposal, PurgeMode,
+    ScopeResolutionError, StageAutoImproveRun, StoreError,
+};
 use ai_memory_wiki::{AdmissionContext, AdmissionOp, WritePageRequest};
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -672,14 +675,95 @@ struct InspecionarMemoriaResposta {
     total_paginas: u64,
     total_sessoes: u64,
     abertas: u64,
+    total_entidades: usize,
+    total_relacoes: usize,
+    revisoes_pendentes: usize,
     paginas: Vec<PaginaInspecionada>,
     sessoes: Vec<SessaoInspecionada>,
+    revisoes_aprendizado: Vec<RevisaoAprendizadoExportada>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct ExportarMemoriasReq {
     #[serde(default)]
     escopos: Vec<String>,
+    #[serde(default)]
+    tudo: bool,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct RelacaoGrafoExportada {
+    pub from_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_project: Option<String>,
+    pub to_path: String,
+    #[serde(default)]
+    pub link_type: String,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct GrafoExportado {
+    #[serde(default)]
+    pub entidades: Vec<String>,
+    #[serde(default)]
+    pub relacoes: Vec<RelacaoGrafoExportada>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct RevisaoAprendizadoExportada {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub operation: String,
+    pub target_path: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub confidence: f64,
+    #[serde(default)]
+    pub rationale: String,
+    #[serde(default)]
+    pub body_markdown: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub staged_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct AprendizadoEstacaoExportado {
+    #[serde(default)]
+    pub contexto_global: String,
+    #[serde(default)]
+    pub avaliacoes: Vec<super::estado::AvaliacaoAgente>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct ResumoPacoteMemoria {
+    #[serde(default)]
+    pub total_projetos: usize,
+    #[serde(default)]
+    pub total_paginas: usize,
+    #[serde(default)]
+    pub total_entidades: usize,
+    #[serde(default)]
+    pub total_relacoes: usize,
+    #[serde(default)]
+    pub total_revisoes_aprendizado: usize,
+    #[serde(default)]
+    pub revisoes_pendentes: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -690,7 +774,11 @@ pub(super) struct PacoteMemoria {
     pub exportado_em: i64,
     #[serde(default)]
     pub versao_app: String,
+    #[serde(default)]
+    pub resumo: ResumoPacoteMemoria,
     pub projetos: Vec<MemoriaExportada>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aprendizado_estacao: Option<AprendizadoEstacaoExportado>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -701,6 +789,10 @@ pub(super) struct MemoriaExportada {
     #[serde(default)]
     pub sessoes_registradas: u64,
     pub paginas: Vec<PaginaExportada>,
+    #[serde(default)]
+    pub grafo: GrafoExportado,
+    #[serde(default)]
+    pub revisoes_aprendizado: Vec<RevisaoAprendizadoExportada>,
 }
 
 fn tier_semantic() -> String {
@@ -737,6 +829,7 @@ pub(crate) struct ImportarMemoriasReq {
 struct DetalheImportacao {
     escopo: String,
     paginas: usize,
+    revisoes: usize,
     substituida: bool,
 }
 
@@ -744,7 +837,34 @@ struct DetalheImportacao {
 struct ImportarMemoriasResposta {
     projetos_importados: usize,
     paginas_importadas: usize,
+    revisoes_importadas: usize,
     detalhes: Vec<DetalheImportacao>,
+}
+
+#[derive(Serialize)]
+struct EscopoResumoItem {
+    escopo: String,
+    pasta: String,
+    paginas: u64,
+    sessoes: u64,
+    abertas: u64,
+    entidades: u64,
+    relacoes: u64,
+    revisoes_pendentes: u64,
+    revisoes_total: u64,
+    oculta: bool,
+    global: bool,
+}
+
+#[derive(Serialize)]
+struct ResumoMemoriasResposta {
+    total_escopos: usize,
+    total_paginas: u64,
+    total_entidades: u64,
+    total_relacoes: u64,
+    total_revisoes_pendentes: u64,
+    total_revisoes: u64,
+    escopos: Vec<EscopoResumoItem>,
 }
 
 struct PaginaArmazenada {
@@ -761,6 +881,8 @@ struct PaginaArmazenada {
 struct EscopoDetalhe {
     paginas: Vec<PaginaArmazenada>,
     sessoes: Vec<SessaoInspecionada>,
+    grafo: GrafoExportado,
+    revisoes_aprendizado: Vec<RevisaoAprendizadoExportada>,
     total_paginas: u64,
     total_sessoes: u64,
     abertas: u64,
@@ -913,9 +1035,70 @@ async fn ler_escopo_detalhado(
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
 
+            let mut stmt_ent = conn.prepare(
+                "SELECT name FROM entities WHERE workspace_id=?1 AND project_id=?2 ORDER BY name ASC",
+            )?;
+            let entidades = stmt_ent
+                .query_map(rusqlite::params![w.as_bytes(), p.as_bytes()], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let mut stmt_rel = conn.prepare(
+                "SELECT p_from.path, l.to_workspace, l.to_project, l.to_path, l.link_type \
+                 FROM links l \
+                 JOIN pages p_from ON p_from.id = l.from_page_id \
+                 WHERE p_from.workspace_id=?1 AND p_from.project_id=?2 AND p_from.is_latest=1 \
+                 ORDER BY p_from.path ASC, COALESCE(l.to_workspace, ''), COALESCE(l.to_project, ''), l.to_path ASC, l.link_type ASC",
+            )?;
+            let relacoes = stmt_rel
+                .query_map(rusqlite::params![w.as_bytes(), p.as_bytes()], |r| {
+                    Ok(RelacaoGrafoExportada {
+                        from_path: r.get(0)?,
+                        to_workspace: r.get(1)?,
+                        to_project: r.get(2)?,
+                        to_path: r.get(3)?,
+                        link_type: r.get(4)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            let mut stmt_rev = conn.prepare(
+                "SELECT LOWER(HEX(pr.id)), pr.operation, pr.target_path, pr.kind, pr.title, \
+                 pr.confidence, pr.rationale, pr.body_markdown, pr.status, pr.staged_at, \
+                 pr.decided_at, pr.decision_reason, r.provider, r.model \
+                 FROM auto_improve_proposals pr \
+                 LEFT JOIN auto_improve_runs r ON r.id = pr.run_id \
+                 WHERE pr.workspace_id=?1 AND pr.project_id=?2 \
+                 ORDER BY pr.staged_at ASC, pr.target_path ASC",
+            )?;
+            let revisoes_aprendizado = stmt_rev
+                .query_map(rusqlite::params![w.as_bytes(), p.as_bytes()], |r| {
+                    Ok(RevisaoAprendizadoExportada {
+                        id: r.get(0)?,
+                        operation: r.get(1)?,
+                        target_path: r.get(2)?,
+                        kind: r.get(3)?,
+                        title: r.get(4)?,
+                        confidence: r.get(5)?,
+                        rationale: r.get(6)?,
+                        body_markdown: r.get(7)?,
+                        status: r.get(8)?,
+                        staged_at: r.get(9)?,
+                        decided_at: r.get(10)?,
+                        decision_reason: r.get(11)?,
+                        provider: r.get(12)?,
+                        model: r.get(13)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
             Ok(EscopoDetalhe {
                 paginas,
                 sessoes,
+                grafo: GrafoExportado {
+                    entidades,
+                    relacoes,
+                },
+                revisoes_aprendizado,
                 total_paginas,
                 total_sessoes,
                 abertas,
@@ -924,6 +1107,99 @@ async fn ler_escopo_detalhado(
         })
         .await
         .map_err(|e| format!("Falha ao consultar memória: {e}"))
+}
+
+/// Lista um resumo de todas as memórias deste computador (páginas, grafo de conhecimento e revisão de aprendizado).
+pub(crate) async fn api_resumo_memorias(
+    State(state): State<Arc<WebState>>,
+    viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
+) -> Response {
+    let uid = viewer.map(|v| v.0.user());
+    let projetos = state
+        .reader
+        .list_projects_with_stats(uid)
+        .await
+        .unwrap_or_default();
+    let ocultas: HashSet<String> = {
+        let est_ref = estacao(&state);
+        let e = est_ref.estado.lock().await;
+        e.memorias_ocultas.iter().cloned().collect()
+    };
+    let contagens: HashMap<String, (String, u64, u64, u64, u64)> = state
+        .reader
+        .with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT w.name || '/' || pr.name, \
+                 COALESCE((SELECT s.cwd FROM sessions s WHERE s.project_id = pr.id AND s.cwd IS NOT NULL ORDER BY s.started_at DESC LIMIT 1), ''), \
+                 (SELECT COUNT(*) FROM entities e WHERE e.workspace_id = pr.workspace_id AND e.project_id = pr.id), \
+                 (SELECT COUNT(*) FROM links l JOIN pages pg ON pg.id = l.from_page_id WHERE pg.workspace_id = pr.workspace_id AND pg.project_id = pr.id AND pg.is_latest = 1), \
+                 (SELECT COUNT(*) FROM auto_improve_proposals ap WHERE ap.workspace_id = pr.workspace_id AND ap.project_id = pr.id AND ap.status = 'pending'), \
+                 (SELECT COUNT(*) FROM auto_improve_proposals ap WHERE ap.workspace_id = pr.workspace_id AND ap.project_id = pr.id) \
+                 FROM projects pr JOIN workspaces w ON w.id = pr.workspace_id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    (
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?.max(0) as u64,
+                        r.get::<_, i64>(3)?.max(0) as u64,
+                        r.get::<_, i64>(4)?.max(0) as u64,
+                        r.get::<_, i64>(5)?.max(0) as u64,
+                    ),
+                ))
+            })?;
+            Ok(rows.filter_map(Result::ok).collect())
+        })
+        .await
+        .unwrap_or_default();
+
+    let mut escopos: Vec<EscopoResumoItem> = projetos
+        .into_iter()
+        .map(|p| {
+            let escopo = format!("{}/{}", p.workspace_name, p.project_name);
+            let (pasta, entidades, relacoes, revisoes_pendentes, revisoes_total) =
+                contagens.get(&escopo).cloned().unwrap_or_default();
+            EscopoResumoItem {
+                global: escopo == ESCOPO_GLOBAL,
+                oculta: ocultas.contains(&escopo),
+                escopo,
+                pasta,
+                paginas: p.page_count,
+                sessoes: p.session_count,
+                abertas: p.open_session_count,
+                entidades,
+                relacoes,
+                revisoes_pendentes,
+                revisoes_total,
+            }
+        })
+        .collect();
+    escopos.sort_by(|a, b| match (a.global, b.global) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a.escopo.cmp(&b.escopo),
+    });
+
+    let total_paginas = escopos.iter().map(|e| e.paginas).sum();
+    let total_entidades = escopos.iter().map(|e| e.entidades).sum();
+    let total_relacoes = escopos.iter().map(|e| e.relacoes).sum();
+    let total_revisoes_pendentes = escopos.iter().map(|e| e.revisoes_pendentes).sum();
+    let total_revisoes = escopos.iter().map(|e| e.revisoes_total).sum();
+
+    (
+        [("cache-control", "no-store")],
+        Json(ResumoMemoriasResposta {
+            total_escopos: escopos.len(),
+            total_paginas,
+            total_entidades,
+            total_relacoes,
+            total_revisoes_pendentes,
+            total_revisoes,
+            escopos,
+        }),
+    )
+        .into_response()
 }
 
 /// Inspeciona detalhadamente páginas e sessões de uma memória de projeto.
@@ -988,6 +1264,13 @@ pub(crate) async fn api_inspecionar_memoria(
             updated_at: pg.updated_at,
         })
         .collect();
+    let total_entidades = detalhe.grafo.entidades.len();
+    let total_relacoes = detalhe.grafo.relacoes.len();
+    let revisoes_pendentes = detalhe
+        .revisoes_aprendizado
+        .iter()
+        .filter(|r| r.status == "pending")
+        .count();
     (
         [("cache-control", "no-store")],
         Json(InspecionarMemoriaResposta {
@@ -999,14 +1282,19 @@ pub(crate) async fn api_inspecionar_memoria(
             total_paginas: detalhe.total_paginas,
             total_sessoes: detalhe.total_sessoes,
             abertas: detalhe.abertas,
+            total_entidades,
+            total_relacoes,
+            revisoes_pendentes,
             paginas,
             sessoes: detalhe.sessoes,
+            revisoes_aprendizado: detalhe.revisoes_aprendizado,
         }),
     )
         .into_response()
 }
 
-/// Exporta uma ou várias memórias selecionadas em formato portátil `estacao-ai-memoria-v1`.
+/// Exporta uma, várias ou todas as memórias do computador em formato portátil `estacao-ai-memoria-v1`
+/// (incluindo grafo de conhecimento e fila/histórico de revisão de aprendizado).
 pub(crate) async fn api_exportar_memorias(
     axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
     State(state): State<Arc<WebState>>,
@@ -1018,23 +1306,51 @@ pub(crate) async fn api_exportar_memorias(
     if let Err(recusa) = autorizar(&i18n, &state, level, &headers).await {
         return recusa;
     }
+    let uid = viewer.map(|v| v.0.user());
     let mut vistoria = HashSet::new();
     let mut alvos = Vec::new();
-    for raw in req.escopos {
-        let limpo = raw.trim().to_owned();
-        if !limpo.is_empty() && vistoria.insert(limpo.clone()) {
-            alvos.push(limpo);
+    if req.tudo {
+        let todos = state
+            .reader
+            .list_projects_with_stats(uid)
+            .await
+            .unwrap_or_default();
+        for p in todos {
+            let escopo = format!("{}/{}", p.workspace_name, p.project_name);
+            if vistoria.insert(escopo.clone()) {
+                alvos.push(escopo);
+            }
+        }
+        alvos.sort_by(|a, b| match (a == ESCOPO_GLOBAL, b == ESCOPO_GLOBAL) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.cmp(b),
+        });
+    } else {
+        for raw in req.escopos {
+            let limpo = raw.trim().to_owned();
+            if !limpo.is_empty() && vistoria.insert(limpo.clone()) {
+                alvos.push(limpo);
+            }
         }
     }
     if alvos.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            "Selecione ao menos uma memória para exportar.",
+            if req.tudo {
+                "Nenhuma memória registrada neste computador para exportar."
+            } else {
+                "Selecione ao menos uma memória para exportar."
+            },
         )
             .into_response();
     }
-    let uid = viewer.map(|v| v.0.user());
     let mut projetos = Vec::with_capacity(alvos.len());
+    let mut total_paginas = 0usize;
+    let mut total_entidades = 0usize;
+    let mut total_relacoes = 0usize;
+    let mut total_revisoes_aprendizado = 0usize;
+    let mut revisoes_pendentes = 0usize;
     for escopo in alvos {
         let (ws, proj) = match parse_escopo(&escopo) {
             Ok(par) => par,
@@ -1050,7 +1366,7 @@ pub(crate) async fn api_exportar_memorias(
             Ok(d) => d,
             Err(msg) => return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
         };
-        let paginas = detalhe
+        let paginas: Vec<PaginaExportada> = detalhe
             .paginas
             .into_iter()
             .map(|pg| PaginaExportada {
@@ -1063,19 +1379,54 @@ pub(crate) async fn api_exportar_memorias(
                 updated_at: pg.updated_at,
             })
             .collect();
+        total_paginas += paginas.len();
+        total_entidades += detalhe.grafo.entidades.len();
+        total_relacoes += detalhe.grafo.relacoes.len();
+        total_revisoes_aprendizado += detalhe.revisoes_aprendizado.len();
+        revisoes_pendentes += detalhe
+            .revisoes_aprendizado
+            .iter()
+            .filter(|r| r.status == "pending")
+            .count();
         projetos.push(MemoriaExportada {
             escopo,
             pasta: detalhe.pasta,
             sessoes_registradas: detalhe.total_sessoes,
             paginas,
+            grafo: detalhe.grafo,
+            revisoes_aprendizado: detalhe.revisoes_aprendizado,
         });
     }
+    let aprendizado_estacao = if req.tudo {
+        let est_ref = estacao(&state);
+        let e = est_ref.estado.lock().await;
+        if e.contexto_global.trim().is_empty() && e.avaliacoes.is_empty() {
+            None
+        } else {
+            Some(AprendizadoEstacaoExportado {
+                contexto_global: e.contexto_global.clone(),
+                avaliacoes: e.avaliacoes.clone(),
+            })
+        }
+    } else {
+        None
+    };
+    let resumo = ResumoPacoteMemoria {
+        total_projetos: projetos.len(),
+        total_paginas,
+        total_entidades,
+        total_relacoes,
+        total_revisoes_aprendizado,
+        revisoes_pendentes,
+    };
     Json(PacoteMemoria {
         versao: 1,
         formato: FORMATO_PACOTE_MEMORIA.into(),
         exportado_em: agora(),
         versao_app: env!("CARGO_PKG_VERSION").into(),
+        resumo,
         projetos,
+        aprendizado_estacao,
     })
     .into_response()
 }
@@ -1175,17 +1526,74 @@ struct PaginaValidada {
     body: String,
 }
 
+struct RevisaoValidada {
+    target_path: PagePath,
+    kind: String,
+    title: String,
+    confidence: f64,
+    rationale: String,
+    body_markdown: String,
+    provider: Option<String>,
+    model: Option<String>,
+}
+
 struct ProjetoImportadoValidado {
     escopo: String,
     ws: String,
     proj: String,
     pasta: Option<String>,
     paginas: Vec<PaginaValidada>,
+    revisoes_pendentes: Vec<RevisaoValidada>,
+}
+
+fn validar_frontmatter_seguro(
+    escopo: &str,
+    path: &str,
+    fm: &serde_json::Value,
+) -> Result<(), String> {
+    let Some(obj) = fm.as_object() else {
+        return Ok(());
+    };
+    for key in ["entities", "tags"] {
+        if let Some(val) = obj.get(key)
+            && !val.is_null()
+            && !val
+                .as_array()
+                .is_some_and(|arr| arr.iter().all(|v| v.is_string()))
+        {
+            return Err(format!(
+                "Frontmatter inválido em {escopo} ({path}): '{key}' deve ser lista de textos."
+            ));
+        }
+    }
+    if let Some(rel) = obj.get("relations")
+        && !rel.is_null()
+    {
+        let valid = rel.as_object().is_some_and(|m| {
+            m.values().all(|v| {
+                v.as_array()
+                    .is_some_and(|arr| arr.iter().all(|item| item.is_string()))
+            })
+        });
+        if !valid {
+            return Err(format!(
+                "Frontmatter inválido em {escopo} ({path}): 'relations' inválido."
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validar_lote_importacao(
     req: ImportarMemoriasReq,
-) -> Result<(Vec<ProjetoImportadoValidado>, bool), String> {
+) -> Result<
+    (
+        Vec<ProjetoImportadoValidado>,
+        Option<AprendizadoEstacaoExportado>,
+        bool,
+    ),
+    String,
+> {
     if req.pacote.formato != FORMATO_PACOTE_MEMORIA || req.pacote.versao != 1 {
         return Err(
             "Arquivo de backup inválido ou versão incompatível (esperado estacao-ai-memoria-v1)."
@@ -1208,6 +1616,7 @@ fn validar_lote_importacao(
     });
     let mut vistos = HashSet::new();
     let mut validados = Vec::new();
+    let aprendizado_estacao = req.pacote.aprendizado_estacao;
     for item in req.pacote.projetos {
         let escopo = item.escopo.trim().to_owned();
         if let Some(ref f) = filtro
@@ -1251,6 +1660,9 @@ fn validar_lote_importacao(
             if let serde_json::Value::Object(ref mut map) = fm {
                 map.remove("path");
             }
+            if substituir {
+                validar_frontmatter_seguro(&escopo, path.as_str(), &fm)?;
+            }
             let title = (!pg.title.trim().is_empty()).then(|| pg.title.trim().to_owned());
             paginas.push(PaginaValidada {
                 path,
@@ -1261,6 +1673,49 @@ fn validar_lote_importacao(
                 body: pg.body,
             });
         }
+        let mut revisoes_pendentes = Vec::new();
+        for rev in item.revisoes_aprendizado {
+            if !rev.status.trim().is_empty() && rev.status != "pending" {
+                continue;
+            }
+            let target_path = PagePath::new(rev.target_path.trim()).map_err(|e| {
+                format!(
+                    "Caminho inválido na revisão de aprendizado em {escopo} ({}): {e}",
+                    rev.target_path
+                )
+            })?;
+            target_path.ensure_portable().map_err(|e| {
+                format!(
+                    "Caminho não portátil na revisão em {escopo} ({}): {e}",
+                    rev.target_path
+                )
+            })?;
+            let title = if rev.title.trim().is_empty() {
+                target_path.as_str().to_owned()
+            } else {
+                rev.title.trim().to_owned()
+            };
+            let kind = if rev.kind.trim().is_empty() {
+                "learning".to_owned()
+            } else {
+                rev.kind.trim().to_owned()
+            };
+            let confidence = if rev.confidence.is_finite() {
+                rev.confidence.clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+            revisoes_pendentes.push(RevisaoValidada {
+                target_path,
+                kind,
+                title,
+                confidence,
+                rationale: rev.rationale,
+                body_markdown: rev.body_markdown,
+                provider: rev.provider,
+                model: rev.model,
+            });
+        }
         let pasta = (!item.pasta.trim().is_empty()).then(|| item.pasta.trim().to_owned());
         validados.push(ProjetoImportadoValidado {
             escopo,
@@ -1268,15 +1723,16 @@ fn validar_lote_importacao(
             proj,
             pasta,
             paginas,
+            revisoes_pendentes,
         });
     }
     if validados.is_empty() {
         return Err("Nenhuma memória selecionada para importar.".into());
     }
-    Ok((validados, substituir))
+    Ok((validados, aprendizado_estacao, substituir))
 }
 
-/// Importa memórias (seleção total ou parcial de projetos) para SQLite e arquivos Markdown da wiki.
+/// Importa memórias (páginas, grafo de conhecimento e revisão de aprendizado) para SQLite e Markdown.
 #[allow(clippy::disallowed_methods)]
 pub(crate) async fn api_importar_memorias(
     axum::Extension(i18n): axum::Extension<ai_memory_core::i18n::Localizer>,
@@ -1290,7 +1746,7 @@ pub(crate) async fn api_importar_memorias(
     if let Err(recusa) = autorizar(&i18n, &state, level, &headers).await {
         return recusa;
     }
-    let (itens, substituir) = match validar_lote_importacao(req) {
+    let (itens, aprendizado_estacao, substituir) = match validar_lote_importacao(req) {
         Ok(par) => par,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
@@ -1301,6 +1757,7 @@ pub(crate) async fn api_importar_memorias(
 
     let mut detalhes = Vec::with_capacity(itens.len());
     let mut total_paginas = 0usize;
+    let mut total_revisoes = 0usize;
     let mut importados = Vec::with_capacity(itens.len());
 
     for item in itens {
@@ -1365,11 +1822,92 @@ pub(crate) async fn api_importar_memorias(
             )
                 .into_response();
         }
+        let mut revisoes_gravadas = 0usize;
+        if !item.revisoes_pendentes.is_empty() {
+            let existentes: HashSet<String> = state
+                .reader
+                .with_conn(move |conn| {
+                    let mut stmt = conn.prepare(
+                        "SELECT path FROM pages WHERE workspace_id=?1 AND project_id=?2 AND is_latest=1",
+                    )?;
+                    let rows = stmt.query_map(rusqlite::params![ws_id.as_bytes(), proj_id.as_bytes()], |r| {
+                        r.get::<_, String>(0)
+                    })?;
+                    Ok(rows.filter_map(Result::ok).collect())
+                })
+                .await
+                .unwrap_or_default();
+            let mut by_provider: BTreeMap<
+                (Option<String>, Option<String>),
+                Vec<NewAutoImproveProposal>,
+            > = BTreeMap::new();
+            for rev in item.revisoes_pendentes {
+                let operation = if existentes.contains(rev.target_path.as_str()) {
+                    AutoImproveProposalOperation::Update
+                } else {
+                    AutoImproveProposalOperation::Create
+                };
+                by_provider
+                    .entry((rev.provider, rev.model))
+                    .or_default()
+                    .push(NewAutoImproveProposal {
+                        operation,
+                        target_path: rev.target_path,
+                        kind: rev.kind,
+                        title: rev.title,
+                        confidence: rev.confidence,
+                        rationale: rev.rationale,
+                        evidence_json: serde_json::json!([]),
+                        body_markdown: rev.body_markdown,
+                        artifact_sha256: None,
+                        edit_mode: None,
+                        patch_json: None,
+                        expected_base_body_sha256: None,
+                    });
+            }
+            for ((provider, model), proposals) in by_provider {
+                match state
+                    .wiki
+                    .writer()
+                    .stage_auto_improve_run_for_owner(
+                        StageAutoImproveRun {
+                            workspace_id: ws_id,
+                            project_id: proj_id,
+                            session_id: None,
+                            provider,
+                            model,
+                            summary: Some("Importado de backup portátil da Estação I.A".into()),
+                            warnings_json: serde_json::json!([]),
+                            rejected_candidates_json: serde_json::json!([]),
+                            config_json: serde_json::json!({"source": "estacao-import"}),
+                            proposal_actor: actor.clone(),
+                            proposals,
+                        },
+                        None,
+                    )
+                    .await
+                {
+                    Ok(report) => revisoes_gravadas += report.proposal_ids.len(),
+                    Err(e) => {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!(
+                                "Erro ao importar revisão de aprendizado de {}: {e}",
+                                item.escopo
+                            ),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
         total_paginas += gravadas;
+        total_revisoes += revisoes_gravadas;
         importados.push(item.escopo.clone());
         detalhes.push(DetalheImportacao {
             escopo: item.escopo,
             paginas: gravadas,
+            revisoes: revisoes_gravadas,
             substituida,
         });
     }
@@ -1377,6 +1915,22 @@ pub(crate) async fn api_importar_memorias(
     let _ = estacao(&state)
         .mudar(|e| {
             e.memorias_ocultas.retain(|x| !importados.contains(x));
+            if let Some(ref apr) = aprendizado_estacao {
+                if e.contexto_global.trim().is_empty() && !apr.contexto_global.trim().is_empty() {
+                    e.contexto_global = apr.contexto_global.clone();
+                }
+                for av in &apr.avaliacoes {
+                    let ja_existe = e.avaliacoes.iter().any(|x| {
+                        x.em == av.em
+                            && x.agente_id == av.agente_id
+                            && x.projeto == av.projeto
+                            && x.mensagem_id == av.mensagem_id
+                    });
+                    if !ja_existe {
+                        e.avaliacoes.push(av.clone());
+                    }
+                }
+            }
             Ok(())
         })
         .await;
@@ -1384,6 +1938,7 @@ pub(crate) async fn api_importar_memorias(
     Json(ImportarMemoriasResposta {
         projetos_importados: detalhes.len(),
         paginas_importadas: total_paginas,
+        revisoes_importadas: total_revisoes,
         detalhes,
     })
     .into_response()

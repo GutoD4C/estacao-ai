@@ -163,6 +163,10 @@ pub(crate) fn station(state: Arc<WebState>) -> Router {
                     .route("/estacao/api/youtube", get(crate::estacao::api_youtube))
                     .route("/estacao/api/estante", get(crate::estacao::api_estante))
                     .route(
+                        "/estacao/api/memorias/resumo",
+                        get(crate::estacao::api_resumo_memorias),
+                    )
+                    .route(
                         "/estacao/api/memorias/inspecionar",
                         get(crate::estacao::api_inspecionar_memoria),
                     )
@@ -173,7 +177,7 @@ pub(crate) fn station(state: Arc<WebState>) -> Router {
                     .route(
                         "/estacao/api/memorias/importar",
                         post(crate::estacao::api_importar_memorias)
-                            .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+                            .layer(axum::extract::DefaultBodyLimit::max(128 * 1024 * 1024)),
                     )
                     .route(
                         "/estacao/api/atualizacao",
@@ -207,6 +211,10 @@ pub(crate) fn build_public_auth(cfg: Arc<HtmlAuthRedirectConfig>) -> Router {
             .route("/static/three.min.js", get(statics::three_js))
             .route("/static/estacao-3d.js", get(statics::estacao_3d_js))
             .route("/static/estacao.js", get(statics::estacao_js))
+            .route(
+                "/static/estacao-memoria.js",
+                get(statics::estacao_memoria_js),
+            )
             .route(
                 "/static/estacao-3d-cena.js",
                 get(statics::estacao_3d_cena_js),
