@@ -869,6 +869,9 @@ Additional boundary rules:
   2. Crie uma branch dedicada para a demanda (`git checkout -b <tipo>/<descricao>`).
   3. Faça commits claros, envie a branch (`git push -u origin <branch>`) e abra uma Pull Request para `main` (`gh pr create --base main`) descrevendo o que mudou e como testar.
   4. Nunca use `git push --force` na `main`.
+- **Sempre publicar a release no GitHub ao fechar uma nova versão da Estação I.A:**
+  1. Após o merge da PR com a nova versão (`X.Y.Z`) na `main`, crie e envie imediatamente a tag anotada no padrão `estacao-<X.Y.Z>` apontando para o commit da `main` (ex.: `git tag -a estacao-1.7.5 <sha> -m "Estação I.A 1.7.5" && git push origin estacao-1.7.5`).
+  2. O push da tag `estacao-*` dispara `.github/workflows/windows-installer.yml`, que gera e anexa `Estacao-ai-Setup-win10-11-x64.exe`, `Estacao-ai-win10-11-x64.exe`, `estacao-ai_<X.Y.Z>_amd64.deb` e `SHA256SUMS.txt` na release marcada como `Latest`.
 
 ## Documentation map
 
