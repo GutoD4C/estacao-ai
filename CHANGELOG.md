@@ -8,6 +8,15 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.7] — 2026-11-27
+
+### Fixed
+
+- Corrigida a abertura do aplicativo no Linux para abrir em **janela desktop nativa própria (GTK3 + WebKit2 4.1)** com ícone da Estação I.A, sessão Nostr de 30 dias persistida, download de backups em `Downloads`, links externos redirecionados ao navegador e minimização direta para a área de notificação ao minimizar ou fechar a janela (sem abrir o navegador Google Chrome).
+- Corrigida a exibição inicial (modo normal) do **Grafo de conhecimento** ([`estacao-grafo.js`](crates/ai-memory-web/static/estacao-grafo.js)): removido o feedback loop de `ResizeObserver` causado por dimensionamento inline em pixels no `<canvas>` que zerava e apagava o canvas a cada quadro até clicar em **Expandir grafo**.
+- Ampliados o **Grafo de conhecimento** (`/web/graph` e `/web/w/:ws/:proj/graph`), a **Revisão de aprendizado** (`/web/pending`) e a **Estante de Conhecimento 3D** (`/estacao/api/estante`) para consolidar e exibir tudo o que foi aprendido por cada projeto na máquina (regras, decisões, alertas, sessões, handoffs, agentes externos como Claude Code, Codex e Antigravity CLI, e sinais capturados por hooks), inclusive em projetos que rodam fora da Estação I.A ou ainda sem consolidação LLM ([`learnings.rs`](crates/ai-memory-web/src/routes/learnings.rs)).
+- Alinhado o `--class=EstacaoAI` no fallback Chromium com o `StartupWMClass=EstacaoAI` do atalho `.desktop` e adicionadas dependências recomendadas no pacote `.deb`.
+
 ## [1.7.6] — 2026-11-27
 
 ### Added

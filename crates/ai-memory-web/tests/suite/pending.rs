@@ -662,3 +662,87 @@ async fn pending_page_is_never_cached() {
     let body = String::from_utf8(body.to_vec()).unwrap();
     assert!(body.contains(&format!("data-id=\"{id}\"")), "{body}");
 }
+
+#[tokio::test]
+async fn pending_lists_learnings_from_every_project_on_the_machine() {
+    let f = fixture().await;
+    add_db_user(&f.store).await;
+    let ws = f
+        .store
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let ext = f
+        .store
+        .writer
+        .get_or_create_project(ws, "projeto-fora-da-estacao", None)
+        .await
+        .unwrap();
+
+    f.store
+        .writer
+        .upsert_page(NewPage {
+            workspace_id: ws,
+            project_id: ext,
+            path: PagePath::new("decisions/arquitetura-cli.md").unwrap(),
+            title: "Decisao CLI Externa".into(),
+            body: "Padrao definido diretamente em sessao externa do Codex.".into(),
+            tier: Tier::Semantic,
+            frontmatter_json: serde_json::json!({"kind": "decision"}),
+            pinned: false,
+            links: Vec::new(),
+            author_id: None,
+            expires_at: None,
+            entities: Vec::new(),
+            evidence: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+    let sid = ai_memory_core::SessionId::new();
+    f.store
+        .writer
+        .begin_session(ai_memory_core::NewSession {
+            occurred_at: None,
+            id: sid,
+            workspace_id: ws,
+            project_id: ext,
+            agent_kind: ai_memory_core::AgentKind::Codex,
+            cwd: Some("/tmp/projeto-fora-da-estacao".into()),
+            actor_user: None,
+        })
+        .await
+        .unwrap();
+    f.store
+        .writer
+        .insert_handoff(ai_memory_core::NewHandoff {
+            workspace_id: ws,
+            project_id: ext,
+            from_session_id: Some(sid),
+            from_agent: ai_memory_core::AgentKind::Codex,
+            to_agent: None,
+            cwd: Some("/tmp/projeto-fora-da-estacao".into()),
+            summary: "Aprendizado capturado fora da Estacao I.A".into(),
+            open_questions: Vec::new(),
+            next_steps: Vec::new(),
+            files_touched: vec!["main.rs".into()],
+            owner_user: None,
+        })
+        .await
+        .unwrap();
+
+    let (status, _, body) = get(app(&f, AuthLevel::Root), "/pending", false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body.contains("Aprendizados reais por projeto na máquina"),
+        "{body}"
+    );
+    assert!(body.contains("default/projeto-fora-da-estacao"), "{body}");
+    assert!(body.contains("Decisao CLI Externa"), "{body}");
+    assert!(
+        body.contains("Aprendizado capturado fora da Estacao I.A"),
+        "{body}"
+    );
+    assert!(body.contains("Codex"), "{body}");
+}

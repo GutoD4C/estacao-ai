@@ -927,11 +927,34 @@ pub(crate) struct EstacaoMemoriaRow {
     pub excerpt: String,
 }
 
+/// Um item de aprendizado (página consolidada, regra, handoff ou sinal de sessão externa).
+pub(crate) struct EstacaoAprendizadoItem {
+    pub kind: String,
+    pub title: String,
+    pub href: String,
+    pub excerpt: String,
+    pub meta: String,
+}
+
+/// Conjunto completo de aprendizados de um projeto (Estação I.A ou máquina local).
+pub(crate) struct EstacaoProjetoAprendizado {
+    pub scope: String,
+    pub origem: &'static str,
+    pub pasta: String,
+    pub agentes: String,
+    pub project_href: String,
+    pub graph_href: String,
+    pub page_count: u64,
+    pub observation_count: u64,
+    pub handoff_count: u64,
+    pub itens: Vec<EstacaoAprendizadoItem>,
+}
+
 /// Link rápido para o grafo interno de um projeto de memória.
 pub(crate) struct GraphProjectLink {
     pub label: String,
     pub href: String,
-    pub pages: usize,
+    pub badge: String,
 }
 
 /// View-model for `GET /pending`.
@@ -962,6 +985,8 @@ pub(crate) struct PendingView {
     pub estacao_concluidas: Vec<EstacaoTarefaRow>,
     /// Páginas recentes gravadas na memória local.
     pub memoria_recentes: Vec<EstacaoMemoriaRow>,
+    /// Aprendizados consolidados e capturados agrupados por projeto na máquina.
+    pub projetos_aprendizados: Vec<EstacaoProjetoAprendizado>,
 }
 
 // ---------------------------------------------------------------------------

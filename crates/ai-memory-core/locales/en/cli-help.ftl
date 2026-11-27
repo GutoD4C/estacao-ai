@@ -276,6 +276,7 @@ cli-help-root-service-host-supervise-help = { "Run the supervisor in this proces
 cli-help-root-tray-about = { "Hidden system-tray icon host for minimizing, restoring, and closing the desktop app" }
 cli-help-root-tray-parent-pid-help = { "Exit when the parent process exits; omit for detached desktop tray lifetime" }
 cli-help-root-tray-stop-file-help = { "Stop marker file created when closing the background server from the tray" }
+cli-help-root-tray-url-help = { "Initial desktop application URL to open inside the native window" }
 cli-help-root-render-plugins-about = { "Generate the marketplace plugins under `plugins/` and their catalogs (maintainer tool: `bin/release` and the drift test call it)" }
 cli-help-root-render-plugins-out-help = { "Repository root to write `plugins/` and the catalogs under" }
 cli-help-root-install-mcp-about = { "Print MCP server registration snippets for any supported client. Current values are listed under `--client`; see docs/mcp-install.md for the full guide" }

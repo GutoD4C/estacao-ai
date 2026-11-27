@@ -220,3 +220,108 @@ async fn project_graph_unknown_project_is_not_found() {
     let (status, body) = get(api, "/workspaces/default/projects/missing/graph").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
 }
+
+#[tokio::test]
+async fn graph_surfaces_external_machine_projects_sessions_and_observations_without_pages() {
+    let (_tmp, store, wiki) = setup().await;
+    let ws = store
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let proj_with_page = store
+        .writer
+        .get_or_create_project(ws, "repo-alpha", None)
+        .await
+        .unwrap();
+    let proj_external_only = store
+        .writer
+        .get_or_create_project(ws, "portaria-externa", None)
+        .await
+        .unwrap();
+
+    store
+        .writer
+        .upsert_page(page_with_links(
+            ws,
+            proj_with_page,
+            "_rules/regra-alpha.md",
+            "Regra Alpha Consolidada",
+            vec![],
+        ))
+        .await
+        .unwrap();
+
+    // Insere sessão, handoff e observação relevante diretamente no projeto externo sem páginas.
+    let sid = ai_memory_core::SessionId::new();
+    store
+        .writer
+        .begin_session(ai_memory_core::NewSession {
+            occurred_at: None,
+            id: sid,
+            workspace_id: ws,
+            project_id: proj_external_only,
+            agent_kind: ai_memory_core::AgentKind::ClaudeCode,
+            cwd: Some("/tmp/portaria-externa".into()),
+            actor_user: None,
+        })
+        .await
+        .unwrap();
+    store
+        .writer
+        .insert_handoff(ai_memory_core::NewHandoff {
+            workspace_id: ws,
+            project_id: proj_external_only,
+            from_session_id: Some(sid),
+            from_agent: ai_memory_core::AgentKind::ClaudeCode,
+            to_agent: None,
+            cwd: Some("/tmp/portaria-externa".into()),
+            summary: "Integrar autenticacao da portaria com chave local".into(),
+            open_questions: Vec::new(),
+            next_steps: Vec::new(),
+            files_touched: vec!["src/portaria.rs".into()],
+            owner_user: None,
+        })
+        .await
+        .unwrap();
+    store
+        .writer
+        .insert_observation(ai_memory_core::Sanitized::new(
+            ai_memory_core::NewObservation {
+                occurred_at: None,
+                session_id: sid,
+                workspace_id: ws,
+                project_id: proj_external_only,
+                kind: ai_memory_core::ObservationKind::UserPrompt,
+                extension: None,
+                source_event: None,
+                title: "Usar token rotativo na sincronizacao externa".into(),
+                body: "Decisao tomada fora da Estacao I.A via Claude Code".into(),
+                importance: 8,
+                file_path: Some("src/portaria.rs".into()),
+            },
+            &ai_memory_core::Sanitizer::builtin(),
+        ))
+        .await
+        .unwrap();
+
+    let web = router(store.reader, wiki);
+    let (status, global_html) = get(web.clone(), "/graph").await;
+    assert_eq!(status, StatusCode::OK, "{global_html}");
+    assert!(
+        global_html.contains("Regra Alpha Consolidada"),
+        "{global_html}"
+    );
+    assert!(
+        global_html.contains("default/portaria-externa"),
+        "{global_html}"
+    );
+    assert!(global_html.contains("Claude Code"), "{global_html}");
+    assert!(global_html.contains("Usar token rotativo"), "{global_html}");
+
+    let (status, proj_html) = get(web, "/w/default/portaria-externa/graph").await;
+    assert_eq!(status, StatusCode::OK, "{proj_html}");
+    assert!(proj_html.contains("Claude Code"), "{proj_html}");
+    assert!(proj_html.contains("Usar token rotativo"), "{proj_html}");
+    assert!(proj_html.contains("Integrar autenticacao"), "{proj_html}");
+}

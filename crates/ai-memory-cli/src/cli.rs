@@ -464,6 +464,9 @@ pub struct TrayArgs {
     /// Stop marker file created when closing the background server from the tray
     #[arg(long)]
     pub stop_file: Option<PathBuf>,
+    /// Initial desktop application URL to open inside the native window
+    #[arg(long)]
+    pub url: Option<String>,
 }
 
 // Arguments for `app`.

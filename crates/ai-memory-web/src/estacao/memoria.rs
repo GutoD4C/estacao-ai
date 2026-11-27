@@ -578,48 +578,85 @@ pub(crate) async fn api_estante(
         }
     }
 
-    // Livros da Memória / Wiki (páginas gravadas no SQLite)
-    if viewer_id.is_none() {
-        let paginas_wiki: Vec<(String, String, String, String, String, i64)> = state
-            .reader
-            .with_conn(|conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT w.name, pr.name, p.path, COALESCE(p.title, p.path), COALESCE(p.body, ''), p.updated_at \
-                     FROM pages p \
-                     JOIN workspaces w ON w.id = p.workspace_id \
-                     JOIN projects pr ON pr.id = p.project_id \
-                     WHERE p.is_latest = 1 \
-                     ORDER BY p.pinned DESC, p.updated_at DESC \
-                     LIMIT 30",
-                )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, i64>(5)?,
-                    ))
-                })?;
-                Ok(rows.filter_map(Result::ok).collect())
-            })
-            .await
-            .unwrap_or_default();
-        let cores_mem = ["#335c7d", "#2d6a6a", "#4a5d8a", "#5c6b3d", "#6d5044"];
-        for (i, (ws, proj, path, title, body, updated_at)) in paginas_wiki.into_iter().enumerate() {
+    // Livros da Memória / Wiki e projetos capturados na máquina (páginas, handoffs e sinais)
+    let aprendizados =
+        crate::routes::learnings::load_all_project_learnings(&state, viewer_id, 6, 6).await;
+    let cores_mem = ["#335c7d", "#2d6a6a", "#4a5d8a", "#5c6b3d", "#6d5044"];
+    let mut cor_idx = 0usize;
+    for escopo_ap in aprendizados {
+        let escopo_label = format!("{}/{}", escopo_ap.workspace, escopo_ap.project);
+        for pg in &escopo_ap.pages {
             livros.push(LivroEstante {
-                id: format!("mem:{ws}/{proj}/{path}"),
+                id: format!("mem:{escopo_label}/{}", pg.path),
                 categoria: "memoria".into(),
-                titulo: title,
-                subtitulo: format!("Memória · {ws}/{proj}"),
-                autor: "Memória da Estação".into(),
-                projeto: format!("{ws}/{proj}"),
-                cor: cores_mem[i % cores_mem.len()].into(),
-                data: updated_at / 1_000_000,
-                conteudo: resumir_corpo(&body, 3200),
-                link: crate::templates::page_href(&ws, &proj, &path),
+                titulo: pg.title.clone(),
+                subtitulo: format!("{} · {}", pg.kind, escopo_label),
+                autor: if escopo_ap.agentes.is_empty() {
+                    "Memória da Estação".into()
+                } else {
+                    escopo_ap.agentes.join(", ")
+                },
+                projeto: escopo_label.clone(),
+                cor: cores_mem[cor_idx % cores_mem.len()].into(),
+                data: pg.updated_at / 1_000_000,
+                conteudo: pg.excerpt.clone(),
+                link: crate::templates::page_href(
+                    &escopo_ap.workspace,
+                    &escopo_ap.project,
+                    &pg.path,
+                ),
             });
+            cor_idx += 1;
+        }
+        if !escopo_ap.handoffs.is_empty() || !escopo_ap.signals.is_empty() {
+            let mut corpo = format!("Resumo do que foi aprendido no projeto {escopo_label}:\n\n");
+            if !escopo_ap.pasta.is_empty() {
+                corpo.push_str(&format!("Pasta: {}\n", escopo_ap.pasta));
+            }
+            if !escopo_ap.agentes.is_empty() {
+                corpo.push_str(&format!(
+                    "Agentes ativos: {}\n",
+                    escopo_ap.agentes.join(", ")
+                ));
+            }
+            corpo.push_str(&format!(
+                "Totais capturados: {} página(s), {} handoff(s), {} observação(ões)\n\n",
+                escopo_ap.page_count, escopo_ap.handoff_count, escopo_ap.observation_count
+            ));
+            for h in &escopo_ap.handoffs {
+                corpo.push_str(&format!("• [Handoff · {}] {}\n", h.from_agent, h.summary));
+                if !h.files_touched.is_empty() {
+                    corpo.push_str(&format!("  Arquivos: {}\n", h.files_touched.join(", ")));
+                }
+            }
+            for sig in &escopo_ap.signals {
+                let ag_suffix = if sig.agent.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", sig.agent)
+                };
+                corpo.push_str(&format!("• [{}{}] {}\n", sig.kind, ag_suffix, sig.title));
+                if !sig.detail.is_empty() {
+                    corpo.push_str(&format!("  {}\n", sig.detail));
+                }
+            }
+            livros.push(LivroEstante {
+                id: format!("ext:{escopo_label}"),
+                categoria: "memoria".into(),
+                titulo: format!("Aprendizados: {}", escopo_ap.project),
+                subtitulo: format!("Projeto na máquina · {escopo_label}"),
+                autor: if escopo_ap.agentes.is_empty() {
+                    "Agentes locais".into()
+                } else {
+                    escopo_ap.agentes.join(", ")
+                },
+                projeto: escopo_label,
+                cor: cores_mem[cor_idx % cores_mem.len()].into(),
+                data: escopo_ap.latest_activity_us / 1_000_000,
+                conteudo: resumir_corpo(&corpo, 3200),
+                link: crate::templates::project_href(&escopo_ap.workspace, &escopo_ap.project),
+            });
+            cor_idx += 1;
         }
     }
 

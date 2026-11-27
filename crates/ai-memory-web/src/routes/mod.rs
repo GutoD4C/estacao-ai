@@ -16,6 +16,7 @@ mod health;
 #[allow(dead_code)] // só a API JSON usa; a página de histórico saiu da Estação-ai.
 mod history;
 mod index;
+pub(crate) mod learnings;
 mod login;
 mod page;
 mod pending;

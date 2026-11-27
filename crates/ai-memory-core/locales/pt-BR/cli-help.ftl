@@ -276,6 +276,7 @@ cli-help-root-service-host-supervise-help = { "Executar o supervisor neste proce
 cli-help-root-tray-about = { "Processo oculto do ícone na área de tarefas para minimizar, restaurar e fechar o aplicativo desktop" }
 cli-help-root-tray-parent-pid-help = { "Encerrar quando o processo pai terminar; omitir para manter o ícone residente" }
 cli-help-root-tray-stop-file-help = { "Arquivo marcador criado ao encerrar o servidor em segundo plano pelo ícone da bandeja" }
+cli-help-root-tray-url-help = { "URL inicial do aplicativo desktop para abrir na janela nativa" }
 cli-help-root-render-plugins-about = { "Gerar plugins de marketplace em `plugins/` e seus catálogos (ferramenta de manutenção chamada por `bin/release` e pelo teste de divergência)" }
 cli-help-root-render-plugins-out-help = { "Raiz do repositório onde gravar `plugins/` e os catálogos" }
 cli-help-root-install-mcp-about = { "Exibir trechos de registro do servidor MCP para qualquer cliente compatível. Valores atuais em `--client`; guia completo em docs/mcp-install.md" }
