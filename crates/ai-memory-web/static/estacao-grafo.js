@@ -9,11 +9,25 @@
   const mount = document.getElementById("estacao-grafo-neural");
   if (!svg || !container || !mount) return;
 
+  function safeHref(raw) {
+    if (typeof raw !== "string") return "#";
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "#") return "#";
+    try {
+      const url = new URL(trimmed, document.baseURI);
+      if (url.origin === window.location.origin && (url.protocol === "http:" || url.protocol === "https:")) {
+        const rel = url.pathname + url.search + url.hash;
+        return rel.startsWith("/") ? rel : "#";
+      }
+    } catch (_) {}
+    return "#";
+  }
+
   const rawNodes = Array.from(svg.querySelectorAll("g[data-idx]")).map((g, pos) => {
     const idx = Number.parseInt(g.getAttribute("data-idx") || String(pos), 10);
     const label = g.getAttribute("data-label") || (g.textContent || "").trim();
     const tooltip = g.getAttribute("data-tooltip") || label;
-    const href = g.getAttribute("data-href") || "#";
+    const href = safeHref(g.getAttribute("data-href") || "#");
     const color = g.getAttribute("data-color") || "#3b82f6";
     const kind = g.getAttribute("data-kind") || "Nó";
     return {
@@ -488,8 +502,9 @@
   canvas.addEventListener("dblclick", (ev) => {
     const rect = canvas.getBoundingClientRect();
     const hit = findNodeAtScreen(ev.clientX - rect.left, ev.clientY - rect.top);
-    if (hit && hit.href && hit.href !== "#") {
-      window.location.href = hit.href;
+    const target = hit ? safeHref(hit.href) : "#";
+    if (target !== "#") {
+      window.location.assign(target);
     }
   });
 
@@ -543,10 +558,17 @@
     const detailEl = el("p", "eg-insp-desc", node.tooltip);
     const countEl = el("div", "eg-insp-meta", `${node.neighbors.size} sinapse(s) direta(s)`);
 
-    const openLink = document.createElement("a");
-    openLink.href = node.href;
+    const openLink = document.createElement("button");
+    openLink.type = "button";
     openLink.className = "eg-btn eg-btn-primary eg-insp-open";
     openLink.textContent = "Abrir página / item ↗";
+    const safeUrl = safeHref(node.href);
+    openLink.disabled = safeUrl === "#";
+    openLink.addEventListener("click", () => {
+      if (safeUrl.startsWith("/")) {
+        window.location.assign(safeUrl);
+      }
+    });
 
     const listWrap = el("div", "eg-insp-links");
     const listTitle = el("div", "eg-insp-subtitle", "Conexões diretas");
