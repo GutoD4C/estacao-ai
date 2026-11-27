@@ -8,6 +8,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e o pro
 
 ## [Unreleased]
 
+## [1.7.5] — 2026-11-27
+
+### Changed
+
+- Movida a central de exportação, inspeção e importação de memória da aba **Projetos** para **Grafo de conhecimento** e **Revisão de aprendizado** (`/web/graph` e `/web/pending`), via componente dedicado [`estacao-memoria.js`](crates/ai-memory-web/static/estacao-memoria.js), com resumo detalhado (`/estacao/api/memorias/resumo`), exportação completa em 1 clique (`{"tudo": true}` incluindo entidades, relações do grafo, revisões de aprendizado pendentes e aprendizados da Estação), importação em lotes acima de 8 MiB e limite HTTP ampliado para 128 MiB.
+
+### Fixed
+
+- Corrigido o rastreamento de alterações no modal **Conta Nostr & Contatos** (`abrirModalNostr`) e no contexto de projeto para não exibir `"Descartar alterações?"` após salvar o perfil ou conectar um contato `npub`.
+- Eliminados recarregamentos indesejados da página (`location.reload()`) ao perder sessão em abas abertas, em atualizações do cofre em outra aba via `storage`, durante abertura de modais em `carregar()` e em abas ocultas (`document.hidden`), além de estabilizar a ordenação de `presenca_salas` e `memorias` em `/estacao/api/estado`.
+- Validado o `frontmatter` antes de purgar o escopo no modo `substituir` da importação de memórias, evitando perda de dados em pacotes inválidos.
+
 ## [1.7.4] — 2026-11-26
 
 ### Fixed

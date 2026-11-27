@@ -255,13 +255,13 @@ function parseNamedExports(source) {
 // (a) Verificação de sintaxe e contrato de imports/exports
 // ---------------------------------------------------------------------------
 
-test("sintaxe válida em todos os 7 scripts estacao*.js e contrato de imports em estacao.js", async () => {
+test("sintaxe válida em todos os 8 scripts estacao*.js e contrato de imports em estacao.js", async () => {
   const staticPath = fileURLToPath(STATIC_DIR);
   const files = readdirSync(staticPath)
     .filter((name) => /^estacao.*\.js$/.test(name))
     .sort();
 
-  assert.equal(files.length, 7, `esperados 7 arquivos estacao*.js, encontrados: ${files.join(", ")}`);
+  assert.equal(files.length, 8, `esperados 8 arquivos estacao*.js, encontrados: ${files.join(", ")}`);
 
   for (const file of files) {
     const absPath = fileURLToPath(new URL(file, STATIC_DIR));
@@ -1225,6 +1225,71 @@ test("presença e votação no relay: publishPresence com debounce, publishSkipV
       } finally {
         client.disconnect();
       }
+    }
+  );
+});
+
+test("definirAoPerderSessao evita reload em 401 e storage não-nulo não recarrega aba", async () => {
+  const kp = makeKeypair(0x55);
+  const cofreKeyHex = "ef".repeat(32);
+  const baseURI = "http://localhost/web/estacao";
+  const expectedCofreKey = "estacao-assinador-v1:/web/estacao/api/sessao";
+  const nowSec = Math.floor(Date.now() / 1000);
+  let forceRelogin = false;
+
+  await withMockBrowser(
+    {
+      baseURI,
+      cookie: "ai_memory_csrf=csrf-callback",
+      fetch: async (url) => {
+        if (url === "estacao/api/desafio") return Response.json("ch-cb");
+        if (url === "estacao/api/entrar") return Response.json(kp.pubHex);
+        if (url === "estacao/api/sessao") {
+          return Response.json(kp.pubHex, {
+            headers: {
+              "x-estacao-cofre": cofreKeyHex,
+              "x-estacao-vence": String(nowSec + 3600),
+            },
+          });
+        }
+        if (url === "estacao/api/estado" && forceRelogin) {
+          return new Response(null, { status: 401, headers: { "x-estacao-login": "1" } });
+        }
+        throw new Error(`URL inesperada: ${url}`);
+      },
+    },
+    async ({ mod, storageListeners, getReloads }) => {
+      let perdeuChamado = 0;
+      mod.definirAoPerderSessao(() => {
+        perdeuChamado++;
+      });
+
+      await mod.entrarNostr(kp.privHex);
+      assert.equal(mod.contaAtiva(), kp.pubHex);
+
+      // Atualização de cofre em outra aba (newValue !== null) não deve recarregar nem limpar sessão.
+      for (const listener of storageListeners) {
+        listener({ key: expectedCofreKey, newValue: '{"atualizado":true}' });
+      }
+      assert.equal(getReloads(), 0);
+      assert.equal(mod.contaAtiva(), kp.pubHex);
+
+      // Remoção real (newValue === null) notifica sem dar location.reload() quando callback está ativo.
+      for (const listener of storageListeners) {
+        listener({ key: expectedCofreKey, newValue: null });
+      }
+      assert.equal(getReloads(), 0);
+      assert.equal(perdeuChamado, 1);
+      assert.equal(Boolean(mod.contaAtiva()), false);
+
+      // 401 com x-estacao-login também usa callback em vez de reload.
+      await mod.entrarNostr(kp.privHex);
+      forceRelogin = true;
+      const resp = await mod.requisicao("estacao/api/estado");
+      assert.equal(resp.status, 401);
+      assert.equal(getReloads(), 0);
+      assert.equal(perdeuChamado, 2);
+      assert.equal(Boolean(mod.contaAtiva()), false);
     }
   );
 });

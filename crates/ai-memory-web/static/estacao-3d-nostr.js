@@ -4,8 +4,17 @@ export const RELAY_PADRAO = "wss://nostr.mom";
 let chave = null, conta = "", token = "";
 let remoto = null;
 let extensaoAtiva = null;
+let aoPerderSessaoFn = null;
 let vinculoDesktop = new URLSearchParams(location.hash.slice(1)).get("estacao-vinculo");
 if (vinculoDesktop) history.replaceState(history.state, "", location.pathname + location.search);
+
+export function definirAoPerderSessao(fn) {
+  aoPerderSessaoFn = typeof fn === "function" ? fn : null;
+}
+function notificarSessaoPerdida() {
+  if (aoPerderSessaoFn) aoPerderSessaoFn();
+  else window.location.reload();
+}
 
 export function bytesToHex(bytes) {
   return Array.from(bytes, function (b) { return b.toString(16).padStart(2, "0"); }).join("");
@@ -57,7 +66,7 @@ export async function requisicao(url, opts = {}) {
   const resp = await fetch(url, { ...opts, headers, cache: "no-store", credentials: "same-origin" });
   if (resp.headers.has("x-estacao-login") && sessao && sessao === token) {
     limparSessao();
-    window.location.reload();
+    notificarSessaoPerdida();
   }
   return resp;
 }
@@ -133,7 +142,7 @@ let venceSessao = 0;
 function conferirPrazo() {
   if (venceSessao && Date.now() >= venceSessao) {
     limparSessao();
-    window.location.reload();
+    notificarSessaoPerdida();
     throw new Error("Sua sessão Nostr expirou.");
   }
 }
@@ -252,7 +261,12 @@ export async function sairNostr() {
 }
 
 window.addEventListener?.("storage", ev => {
-  if (ev.key === nomeCofre() && token) { limparSessao(); window.location.reload(); }
+  // Só encerra a sessão local quando o cofre é explicitamente removido em outra aba (sair),
+  // evitando recarregamentos quando outra aba grava ou atualiza o mesmo cofre.
+  if (ev.key === nomeCofre() && ev.newValue === null && token) {
+    limparSessao();
+    notificarSessaoPerdida();
+  }
 });
 
 const STORAGE_KEY = "estacao-nostr-config-v1";

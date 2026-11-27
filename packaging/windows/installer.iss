@@ -2,7 +2,7 @@
 ; Instala e configura tudo automaticamente (MCP, hooks, skills, serviço de login,
 ; modelos locais e atalhos na Área de Trabalho / Menu Iniciar) sem precisar de comandos.
 #ifndef MyAppVersion
-  #define MyAppVersion "1.7.4"
+  #define MyAppVersion "1.7.5"
 #endif
 
 [Setup]

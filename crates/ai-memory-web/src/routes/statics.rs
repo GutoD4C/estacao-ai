@@ -94,6 +94,11 @@ pub(crate) async fn estacao_js() -> impl IntoResponse {
     js_response(include_str!("../../static/estacao.js"))
 }
 
+/// `GET /static/estacao-memoria.js`
+pub(crate) async fn estacao_memoria_js() -> impl IntoResponse {
+    js_response(include_str!("../../static/estacao-memoria.js"))
+}
+
 /// `GET /static/estacao-3d-cena.js`
 pub(crate) async fn estacao_3d_cena_js() -> impl IntoResponse {
     js_response(include_str!("../../static/estacao-3d-cena.js"))

@@ -26,6 +26,9 @@
 <h1 class="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">{{ i18n.label(heading) }}</h1>
 <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">{{ i18n.label(blurb) }}</p>
 
+<section id="estacao-memoria-painel" class="mb-6"{% if is_project %} data-escopo="{{ workspace }}/{{ project }}"{% endif %}></section>
+<script type="module" src="static/estacao-memoria.js"></script>
+
 {% if truncated %}
 <p class="mb-6 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">{{ i18n.two("web-graph-capped", shown, node_cap) }}</p>
 {% endif %}

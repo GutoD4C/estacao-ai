@@ -5,7 +5,7 @@ data-base: 26/11/2026
 # Instalação e operação
 
 ## Uso do dia a dia
-A Estação-ai (versão **1.7.4**) roda localmente em `http://127.0.0.1:49374/web/chat` e usa **Nostr** para autenticação, presença e compartilhamento seguro de salas e projetos.
+A Estação-ai (versão **1.7.5**) roda localmente em `http://127.0.0.1:49374/web/chat` e usa **Nostr** para autenticação, presença e compartilhamento seguro de salas e projetos.
 
 1. **Instale** usando o instalador nativo (`.exe` para Windows 10/11 x64 ou `.deb` para Debian/Ubuntu amd64) ou compile a partir do código.
 2. **Abra** pelo atalho **Estação-ai** (que executa `estacao-ai app`). O atalho abre a janela desktop dedicada da aplicação (atualmente em janela de aplicação sem barras de navegador, com migração em andamento para versão desktop própria e independente sem uso do Tauri v2).
