@@ -1293,3 +1293,14 @@ test("definirAoPerderSessao evita reload em 401 e storage não-nulo não recarre
     }
   );
 });
+
+test("estacao-grafo evita feedback loop no ResizeObserver e redesenha ao redimensionar", async () => {
+  const grafoSource = await readFile(new URL("estacao-grafo.js", STATIC_DIR), "utf8");
+  assert.doesNotMatch(
+    grafoSource,
+    /canvas\.style\.(width|height)\s*=/,
+    "Definir style.width/height em px dentro de ResizeObserver causa loop e zera o canvas no modo normal"
+  );
+  assert.match(grafoSource, /\.eg-canvas\s*\{[^}]*position:\s*absolute;\s*inset:\s*0;/);
+  assert.match(grafoSource, /if\s*\(canvas\.width\s*!==\s*bufW\s*\|\|\s*canvas\.height\s*!==\s*bufH\)\s*\{[\s\S]*draw\(\);/);
+});

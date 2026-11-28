@@ -1,13 +1,13 @@
-//! Ícone na bandeja / área de notificação da barra de tarefas (Windows e Linux).
+//! Ícone na bandeja / área de notificação e janela nativa desktop (Windows e Linux).
 //!
 //! Mantém o ícone ativo enquanto a Estação I.A estiver em execução, permitindo:
-//! - Minimizar automaticamente para a área de tarefas quando a janela for minimizada;
+//! - Abrir a Estação I.A em janela nativa própria no Linux (GTK3 + WebKit2 4.1) ou isolada;
+//! - Minimizar automaticamente para a área de tarefas quando a janela for minimizada/fechada;
 //! - Alternar abrir/minimizar pelo ícone ou menu de contexto (botão direito);
 //! - Fechar de vez as janelas do aplicativo e o serviço em segundo plano pelo menu do botão direito.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-#[cfg(windows)]
 use std::time::Duration;
 
 use anyhow::Result;
@@ -19,6 +19,7 @@ use crate::config::Config;
 const LOGO_PNG: &[u8] = include_bytes!("../../../../docs/logo.png");
 const TRAY_LOCK_FILE: &str = ".tray.lock";
 const TRAY_RESTORE_REQ: &str = "tray-restore.req";
+const TRAY_OPEN_REQ: &str = "tray-open.req";
 const SERVICE_STATE_FILE: &str = "service-host.json";
 
 #[cfg(windows)]
@@ -286,20 +287,33 @@ $timer.Start()
 "#;
 
 #[cfg(any(target_os = "linux", test))]
-const LINUX_TRAY_SCRIPT: &str = r#"
+const LINUX_TRAY_SCRIPT: &str = r###"
 import fcntl
 import os
 import shutil
 import signal
 import subprocess
 import sys
+from urllib.parse import urlparse
 
 try:
     import gi
     gi.require_version("Gtk", "3.0")
-    from gi.repository import GLib, Gtk
+    from gi.repository import Gdk, GLib, Gtk
 except Exception:
     sys.exit(0)
+
+WebKit2 = None
+HAS_WEBKIT = False
+for _wk_ver in ("4.1", "4.0"):
+    try:
+        gi.require_version("WebKit2", _wk_ver)
+        from gi.repository import WebKit2 as _wk
+        WebKit2 = _wk
+        HAS_WEBKIT = True
+        break
+    except Exception:
+        continue
 
 HAS_INDICATOR = False
 AppIndicator3 = None
@@ -317,6 +331,8 @@ DATA_DIR = os.environ.get("ESTACAO_TRAY_DATA_DIR", "")
 CFG_PATH = os.environ.get("ESTACAO_TRAY_CONFIG", "")
 STOP_FILE = os.environ.get("ESTACAO_TRAY_STOP", "")
 RESTORE_FILE = os.environ.get("ESTACAO_TRAY_RESTORE", "")
+OPEN_FILE = os.environ.get("ESTACAO_TRAY_OPEN_REQ", "")
+INITIAL_URL = os.environ.get("ESTACAO_TRAY_URL", "")
 ICON_PATH = os.environ.get("ESTACAO_TRAY_PNG", "")
 PARENT_PID = 0
 try:
@@ -325,8 +341,9 @@ except Exception:
     PARENT_PID = 0
 
 LOCK_FILE = os.path.join(DATA_DIR, ".tray.lock") if DATA_DIR else ""
+SKIP_LOCK = os.environ.get("ESTACAO_TRAY_SKIP_LOCK", "") == "1"
 lock_handle = None
-if LOCK_FILE:
+if LOCK_FILE and not SKIP_LOCK:
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         lock_handle = open(LOCK_FILE, "a+")
@@ -339,9 +356,167 @@ HAS_XDOTOOL = shutil.which("xdotool") is not None
 HAS_XPROP = shutil.which("xprop") is not None
 hidden_xids = set()
 
+native_window = None
+native_webview = None
+restoring_native = False
+
 
 def _profile_needle():
     return os.path.join(DATA_DIR, "desktop-app-profile") if DATA_DIR else "desktop-app-profile"
+
+
+def _is_loopback_http(uri):
+    try:
+        parsed = urlparse(uri)
+        return parsed.scheme in ("http", "https") and parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    except Exception:
+        return False
+
+
+def _open_external(uri):
+    try:
+        parsed = urlparse(uri)
+        if parsed.scheme in ("http", "https"):
+            subprocess.Popen(["xdg-open", uri], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def _resolve_download_path(suggested_name):
+    dl_dir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or os.path.expanduser("~/Downloads")
+    os.makedirs(dl_dir, exist_ok=True)
+    safe_name = os.path.basename(suggested_name or "estacao-download.json").strip() or "estacao-download.json"
+    candidate = os.path.join(dl_dir, safe_name)
+    if not os.path.exists(candidate):
+        return candidate
+    stem, ext = os.path.splitext(safe_name)
+    idx = 1
+    while True:
+        alt = os.path.join(dl_dir, f"{stem} ({idx}){ext}")
+        if not os.path.exists(alt):
+            return alt
+        idx += 1
+
+
+def _build_native_window(target_url):
+    global native_window, native_webview
+    if not HAS_WEBKIT:
+        return None
+    if native_window is not None:
+        return native_window
+
+    wk_base = os.path.join(DATA_DIR, "webkit-app-data") if DATA_DIR else os.path.expanduser("~/.local/share/estacao-ai/webkit-app-data")
+    wk_cache = os.path.join(DATA_DIR, "webkit-app-cache") if DATA_DIR else os.path.expanduser("~/.cache/estacao-ai/webkit-app-cache")
+    os.makedirs(wk_base, exist_ok=True)
+    os.makedirs(wk_cache, exist_ok=True)
+
+    data_mgr = WebKit2.WebsiteDataManager(base_data_directory=wk_base, base_cache_directory=wk_cache)
+    cookie_mgr = data_mgr.get_cookie_manager()
+    cookie_mgr.set_persistent_storage(os.path.join(wk_base, "cookies.sqlite"), WebKit2.CookiePersistentStorage.SQLITE)
+    web_ctx = WebKit2.WebContext.new_with_website_data_manager(data_mgr)
+
+    def on_download_started(_ctx, download):
+        def on_decide_dest(dl, suggested_filename):
+            dest = _resolve_download_path(suggested_filename)
+            dl.set_destination(f"file://{dest}")
+            return True
+        download.connect("decide-destination", on_decide_dest)
+
+    web_ctx.connect("download-started", on_download_started)
+
+    wv = WebKit2.WebView.new_with_context(web_ctx)
+    settings = wv.get_settings()
+    settings.set_enable_webgl(True)
+    settings.set_javascript_can_access_clipboard(True)
+    settings.set_enable_smooth_scrolling(True)
+
+    def on_decide_policy(_view, decision, decision_type):
+        if decision_type in (WebKit2.PolicyDecisionType.NAVIGATION_ACTION, WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION):
+            try:
+                action = decision.get_navigation_action()
+                uri = action.get_request().get_uri()
+            except Exception:
+                return False
+            if uri and not _is_loopback_http(uri) and not uri.startswith(("blob:", "data:", "about:")):
+                decision.ignore()
+                _open_external(uri)
+                return True
+        return False
+
+    def on_create(_view, action):
+        try:
+            uri = action.get_request().get_uri()
+        except Exception:
+            return None
+        if uri and _is_loopback_http(uri):
+            wv.load_uri(uri)
+        elif uri:
+            _open_external(uri)
+        return None
+
+    wv.connect("decide-policy", on_decide_policy)
+    wv.connect("create", on_create)
+
+    win = Gtk.Window(title="Estação I.A")
+    try:
+        win.set_wmclass("EstacaoAI", "EstacaoAI")
+    except Exception:
+        pass
+    win.set_default_size(1360, 860)
+    if ICON_PATH and os.path.isfile(ICON_PATH):
+        try:
+            win.set_icon_from_file(ICON_PATH)
+        except Exception:
+            pass
+    win.add(wv)
+
+    def on_delete(_win, _ev):
+        _win.hide()
+        return True
+
+    def on_window_state(_win, ev):
+        if not restoring_native and (ev.new_window_state & Gdk.WindowState.ICONIFIED):
+            GLib.idle_add(lambda: (_win.hide(), False)[1])
+        return False
+
+    win.connect("delete-event", on_delete)
+    win.connect("window-state-event", on_window_state)
+
+    def sync_title(view, _pspec):
+        t = view.get_title()
+        if t:
+            win.set_title(t)
+
+    wv.connect("notify::title", sync_title)
+    wv.load_uri(target_url or "http://127.0.0.1:49374/web/chat")
+
+    native_window = win
+    native_webview = wv
+    return win
+
+
+def show_native_window(target_url=None):
+    global restoring_native
+    win = _build_native_window(target_url)
+    if win is None:
+        return False
+    restoring_native = True
+    try:
+        win.deiconify()
+        win.show_all()
+        win.present()
+        if target_url and "#estacao-vinculo=" in target_url and native_webview is not None:
+            cur = native_webview.get_uri() or ""
+            if not cur or cur == "about:blank":
+                native_webview.load_uri(target_url)
+    finally:
+        GLib.timeout_add(300, lambda: (_clear_restoring(), False)[1])
+    return True
+
+
+def _clear_restoring():
+    global restoring_native
+    restoring_native = False
 
 
 def find_app_pids():
@@ -387,7 +562,7 @@ def find_x11_windows():
                 if len(parts) < 5:
                     continue
                 wid, _, pid_str, _, title = parts
-                if (pid_str.isdigit() and int(pid_str) in pids) or ("Estação" in title):
+                if (pid_str.isdigit() and int(pid_str) in pids) or ("Estação" in title or "estacao-ai" in title):
                     if wid not in wids:
                         wids.append(wid)
         except Exception:
@@ -406,6 +581,9 @@ def is_x11_hidden(wid):
 
 
 def minimize_to_tray(*_args):
+    if native_window is not None:
+        native_window.hide()
+        return
     wids = find_x11_windows()
     for w in wids:
         hidden_xids.add(w)
@@ -417,6 +595,8 @@ def minimize_to_tray(*_args):
 
 
 def restore_windows():
+    if native_window is not None:
+        return show_native_window(None)
     wids = list(dict.fromkeys(list(hidden_xids) + find_x11_windows()))
     restored = False
     for w in wids:
@@ -433,6 +613,8 @@ def restore_windows():
 
 
 def open_or_restore(*_args):
+    if HAS_WEBKIT and show_native_window(INITIAL_URL or "http://127.0.0.1:49374/web/chat"):
+        return
     if restore_windows():
         return
     cmd = [EXE, "--data-dir", DATA_DIR] if DATA_DIR else [EXE]
@@ -443,6 +625,13 @@ def open_or_restore(*_args):
 
 
 def close_all(*_args):
+    global native_window
+    if native_window is not None:
+        try:
+            native_window.destroy()
+        except Exception:
+            pass
+        native_window = None
     for pid in find_app_pids():
         try:
             os.kill(pid, signal.SIGTERM)
@@ -514,6 +703,9 @@ else:
     status_icon.connect("activate", lambda _icon: open_or_restore())
     status_icon.connect("popup-menu", lambda icon, btn, t: menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, btn, t))
 
+if INITIAL_URL and HAS_WEBKIT:
+    show_native_window(INITIAL_URL)
+
 
 def tick():
     if PARENT_PID > 0:
@@ -525,25 +717,38 @@ def tick():
     if STOP_FILE and os.path.exists(STOP_FILE):
         Gtk.main_quit()
         return False
+    if OPEN_FILE and os.path.exists(OPEN_FILE):
+        req_url = None
+        try:
+            with open(OPEN_FILE, "r", encoding="utf-8") as fp:
+                req_url = fp.read().strip()
+            os.remove(OPEN_FILE)
+        except Exception:
+            pass
+        if HAS_WEBKIT:
+            show_native_window(req_url or INITIAL_URL or "http://127.0.0.1:49374/web/chat")
+        else:
+            restore_windows()
     if RESTORE_FILE and os.path.exists(RESTORE_FILE):
         try:
             os.remove(RESTORE_FILE)
         except Exception:
             pass
         restore_windows()
-    for w in find_x11_windows():
-        if w not in hidden_xids and is_x11_hidden(w):
-            hidden_xids.add(w)
-            if HAS_XDOTOOL:
-                subprocess.call(["xdotool", "windowunmap", w], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if native_window is None:
+        for w in find_x11_windows():
+            if w not in hidden_xids and is_x11_hidden(w):
+                hidden_xids.add(w)
+                if HAS_XDOTOOL:
+                    subprocess.call(["xdotool", "windowunmap", w], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
 
 
-GLib.timeout_add(600, tick)
+GLib.timeout_add(300, tick)
 signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
 signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
 Gtk.main()
-"#;
+"###;
 
 /// Garante o arquivo PNG do ícone dentro de `data_dir` para uso na bandeja Linux.
 #[cfg(any(target_os = "linux", test))]
@@ -554,6 +759,82 @@ pub(crate) fn ensure_tray_icon_png(data_dir: &Path) -> PathBuf {
         let _ = std::fs::write(&icon_path, LOGO_PNG);
     }
     icon_path
+}
+
+/// Verifica se o Linux possui `python3` com GTK 3.0 e WebKit2 (4.1 ou 4.0) para janela nativa.
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_supports_native_webkit() -> bool {
+    if !tray_supported_in_environment() {
+        return false;
+    }
+    Command::new("python3")
+        .args([
+            "-c",
+            "import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1')",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Abre ou restaura a janela desktop nativa GTK3 + WebKit2 no Linux integrada à bandeja.
+/// Retorna `true` se o aplicativo nativo assumiu a janela sem precisar de navegador externo.
+#[cfg(target_os = "linux")]
+pub(crate) fn launch_linux_native_app(
+    url: &str,
+    data_dir: &Path,
+    exe: &Path,
+    config_path: Option<&Path>,
+) -> bool {
+    if !linux_supports_native_webkit() {
+        return false;
+    }
+
+    if tray_is_running(data_dir) {
+        let req = data_dir.join(TRAY_OPEN_REQ);
+        if std::fs::write(&req, url.as_bytes()).is_ok() {
+            for _ in 0..12 {
+                if !req.exists() {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(75));
+            }
+            let _ = std::fs::remove_file(&req);
+        }
+        // Processo tray anterior sem suporte a `tray-open.req`: abre janela WebKit2 direta sem competir pelo lock.
+        let mut cmd = Command::new("python3");
+        let png_path = ensure_tray_icon_png(data_dir);
+        cmd.args(["-c", LINUX_TRAY_SCRIPT])
+            .env("ESTACAO_TRAY_EXE", exe)
+            .env("ESTACAO_TRAY_DATA_DIR", data_dir)
+            .env("ESTACAO_TRAY_SKIP_LOCK", "1")
+            .env(
+                "ESTACAO_TRAY_CONFIG",
+                config_path
+                    .map(|p| p.as_os_str().to_os_string())
+                    .unwrap_or_default(),
+            )
+            .env("ESTACAO_TRAY_URL", url)
+            .env("ESTACAO_TRAY_PNG", &png_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        return cmd.spawn().is_ok();
+    }
+
+    spawn_detached_tray_with_url(data_dir, exe, config_path, Some(url))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn launch_linux_native_app(
+    _url: &str,
+    _data_dir: &Path,
+    _exe: &Path,
+    _config_path: Option<&Path>,
+) -> bool {
+    false
 }
 
 /// Adquire o lock exclusivo da bandeja para evitar ícones duplicados por `data_dir`.
@@ -593,14 +874,25 @@ pub(crate) fn ensure_detached_tray(data_dir: &Path, exe: &Path, config_path: Opt
     if !tray_supported_in_environment() || tray_is_running(data_dir) {
         return;
     }
+    let _ = spawn_detached_tray_with_url(data_dir, exe, config_path, None);
+}
 
+fn spawn_detached_tray_with_url(
+    data_dir: &Path,
+    exe: &Path,
+    config_path: Option<&Path>,
+    initial_url: Option<&str>,
+) -> bool {
     let mut cmd = Command::new(exe);
     cmd.arg("--data-dir").arg(data_dir);
     if let Some(cfg) = config_path {
         cmd.arg("--config").arg(cfg);
     }
-    cmd.arg("tray")
-        .stdin(Stdio::null())
+    cmd.arg("tray");
+    if let Some(url) = initial_url {
+        cmd.arg("--url").arg(url);
+    }
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
@@ -612,7 +904,7 @@ pub(crate) fn ensure_detached_tray(data_dir: &Path, exe: &Path, config_path: Opt
         cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
     }
 
-    let _ = cmd.spawn();
+    cmd.spawn().is_ok()
 }
 
 /// Restaura uma janela existente da Estação I.A (inclusive minimizada para a bandeja).
@@ -626,15 +918,11 @@ pub(crate) fn restore_if_running(data_dir: &Path) -> bool {
     if tray_is_running(data_dir) {
         let req = data_dir.join(TRAY_RESTORE_REQ);
         let _ = std::fs::write(&req, b"restore");
-        #[cfg(windows)]
-        {
-            // Se a bandeja ocultar via SW_HIDE, dá um pequeno intervalo para ela restaurar.
-            for _ in 0..8 {
-                if !req.exists() {
-                    return true;
-                }
-                std::thread::sleep(Duration::from_millis(75));
+        for _ in 0..8 {
+            if !req.exists() {
+                return true;
             }
+            std::thread::sleep(Duration::from_millis(75));
         }
         return true;
     }
@@ -731,6 +1019,9 @@ pub(crate) fn run_tray(config: &Config, args: &TrayArgs, config_path: Option<&Pa
         return Ok(());
     }
     let Some(_lock) = try_acquire_tray_lock(&config.data_dir) else {
+        if let Some(url) = args.url.as_deref() {
+            let _ = std::fs::write(config.data_dir.join(TRAY_OPEN_REQ), url.as_bytes());
+        }
         return Ok(());
     };
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("estacao-ai"));
@@ -747,6 +1038,7 @@ pub(crate) fn run_tray(config: &Config, args: &TrayArgs, config_path: Option<&Pa
         config_path,
         &stop_file,
         args.parent_pid.unwrap_or(0),
+        args.url.as_deref(),
     );
     if let Some(ref mut child) = guard.child {
         let _ = child.wait();
@@ -770,7 +1062,14 @@ impl TrayGuard {
         if !tray_supported_in_environment() || tray_is_running(data_dir) {
             return Self { child: None };
         }
-        spawn_tray_process(data_dir, exe, config_path, stop_request, std::process::id())
+        spawn_tray_process(
+            data_dir,
+            exe,
+            config_path,
+            stop_request,
+            std::process::id(),
+            None,
+        )
     }
 }
 
@@ -780,13 +1079,16 @@ fn spawn_tray_process(
     config_path: Option<&Path>,
     stop_request: &Path,
     parent_pid: u32,
+    initial_url: Option<&str>,
 ) -> TrayGuard {
     let restore_file = data_dir.join(TRAY_RESTORE_REQ);
+    let open_file = data_dir.join(TRAY_OPEN_REQ);
 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = (open_file, initial_url);
 
         let ico_path = exe
             .parent()
@@ -840,6 +1142,8 @@ fn spawn_tray_process(
             )
             .env("ESTACAO_TRAY_STOP", stop_request)
             .env("ESTACAO_TRAY_RESTORE", &restore_file)
+            .env("ESTACAO_TRAY_OPEN_REQ", &open_file)
+            .env("ESTACAO_TRAY_URL", initial_url.unwrap_or_default())
             .env("ESTACAO_TRAY_PNG", &png_path)
             .env("ESTACAO_TRAY_PID", parent_pid.to_string())
             .stdin(Stdio::null())
@@ -859,6 +1163,8 @@ fn spawn_tray_process(
             stop_request,
             parent_pid,
             restore_file,
+            open_file,
+            initial_url,
         );
         TrayGuard { child: None }
     }

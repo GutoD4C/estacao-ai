@@ -60,6 +60,7 @@ Section: devel
 Priority: optional
 Architecture: ${ARCH}
 Depends: xdg-utils, xdg-user-dirs, ca-certificates
+Recommends: python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-ayatanaappindicator3-0.1
 Maintainer: GutoD4C <190434373+GutoD4C@users.noreply.github.com>
 Homepage: https://github.com/GutoD4C/estacao-ai
 Description: Estacao-ai — Aplicacao multi-agentes de IA com memoria por projeto e global

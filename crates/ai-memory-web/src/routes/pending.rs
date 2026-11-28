@@ -18,10 +18,12 @@ use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
 
 use crate::estacao::estado::estacao;
+use crate::routes::learnings::load_all_project_learnings;
 use crate::state::WebState;
 use crate::templates::{
-    EstacaoAvaliacaoRow, EstacaoMemoriaRow, EstacaoTarefaRow, PendingRow, PendingView,
-    SelectOption, encode_segment, page_href,
+    EstacaoAprendizadoItem, EstacaoAvaliacaoRow, EstacaoMemoriaRow, EstacaoProjetoAprendizado,
+    EstacaoTarefaRow, PendingRow, PendingView, SelectOption, encode_segment, page_href,
+    project_href,
 };
 
 /// Most proposals one page load reads. A queue this long needs the CLI, and
@@ -214,6 +216,78 @@ pub(crate) async fn handler(
         .await
         .unwrap_or_default();
 
+    let estacao_mem_set: std::collections::HashSet<String> = {
+        let est = estacao(&state);
+        let e = est.estado.lock().await;
+        e.projetos
+            .iter()
+            .filter(|p| !p.memoria.trim().is_empty())
+            .map(|p| p.memoria.trim().to_owned())
+            .collect()
+    };
+
+    let all_learnings = load_all_project_learnings(&state, None, 12, 8).await;
+    let projetos_aprendizados: Vec<EstacaoProjetoAprendizado> = all_learnings
+        .into_iter()
+        .map(|sc| {
+            let scope = format!("{}/{}", sc.workspace, sc.project);
+            let origem = if estacao_mem_set.contains(&scope) {
+                "Estação I.A + máquina"
+            } else {
+                "Na máquina (agentes externos)"
+            };
+            let mut itens: Vec<EstacaoAprendizadoItem> = sc
+                .pages
+                .into_iter()
+                .map(|pg| EstacaoAprendizadoItem {
+                    kind: pg.kind.to_owned(),
+                    title: pg.title,
+                    href: page_href(&sc.workspace, &sc.project, &pg.path),
+                    excerpt: pg.excerpt,
+                    meta: pg.path,
+                })
+                .collect();
+            for h in sc.handoffs {
+                itens.push(EstacaoAprendizadoItem {
+                    kind: "Handoff".into(),
+                    title: h.summary,
+                    href: format!("{}?tab=sessions", project_href(&sc.workspace, &sc.project)),
+                    excerpt: if h.files_touched.is_empty() {
+                        String::new()
+                    } else {
+                        format!("Arquivos: {}", h.files_touched.join(", "))
+                    },
+                    meta: h.from_agent,
+                });
+            }
+            for sig in sc.signals {
+                itens.push(EstacaoAprendizadoItem {
+                    kind: sig.kind.to_owned(),
+                    title: sig.title,
+                    href: format!("{}?tab=sessions", project_href(&sc.workspace, &sc.project)),
+                    excerpt: sig.detail,
+                    meta: sig.agent,
+                });
+            }
+            EstacaoProjetoAprendizado {
+                scope,
+                origem,
+                pasta: sc.pasta,
+                agentes: if sc.agentes.is_empty() {
+                    "Sessões / hooks locais".into()
+                } else {
+                    sc.agentes.join(" · ")
+                },
+                project_href: project_href(&sc.workspace, &sc.project),
+                graph_href: crate::templates::graph_href(&sc.workspace, &sc.project),
+                page_count: sc.page_count,
+                observation_count: sc.observation_count,
+                handoff_count: sc.handoff_count,
+                itens,
+            }
+        })
+        .collect();
+
     render(
         PendingView {
             i18n: i18n.clone(),
@@ -231,6 +305,7 @@ pub(crate) async fn handler(
             estacao_avaliacoes,
             estacao_concluidas,
             memoria_recentes,
+            projetos_aprendizados,
         },
         StatusCode::OK,
     )

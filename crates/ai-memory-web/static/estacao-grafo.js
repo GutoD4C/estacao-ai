@@ -114,6 +114,7 @@
     pulsePhase: 0,
     rafId: 0,
     energy: 1.0,
+    userInteracted: false,
     width: 800,
     height: 520,
     dpr: Math.min(window.devicePixelRatio || 1, 2),
@@ -313,14 +314,28 @@
   }
 
   function resizeCanvas() {
-    const rect = canvasWrap.getBoundingClientRect();
-    state.width = Math.max(320, Math.floor(rect.width));
-    state.height = Math.max(320, Math.floor(rect.height));
-    state.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(state.width * state.dpr);
-    canvas.height = Math.floor(state.height * state.dpr);
-    canvas.style.width = `${state.width}px`;
-    canvas.style.height = `${state.height}px`;
+    const rawW = canvasWrap.clientWidth || canvasWrap.getBoundingClientRect().width;
+    const rawH = canvasWrap.clientHeight || canvasWrap.getBoundingClientRect().height;
+    const nextW = Math.max(320, Math.floor(rawW));
+    const nextH = Math.max(320, Math.floor(rawH));
+    const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
+    const bufW = Math.floor(nextW * nextDpr);
+    const bufH = Math.floor(nextH * nextDpr);
+
+    const prevW = state.width;
+    const prevH = state.height;
+    state.width = nextW;
+    state.height = nextH;
+    state.dpr = nextDpr;
+
+    if (canvas.width !== bufW || canvas.height !== bufH) {
+      canvas.width = bufW;
+      canvas.height = bufH;
+      if (!state.userInteracted && (Math.abs(nextW - prevW) > 8 || Math.abs(nextH - prevH) > 8)) {
+        fitView(true);
+      }
+      draw();
+    }
   }
 
   function zoomBy(factor, clientX, clientY) {
@@ -409,12 +424,14 @@
   // Eventos do Canvas (Pan, Drag, Zoom, Clique, Duplo clique)
   canvas.addEventListener("wheel", (ev) => {
     ev.preventDefault();
+    state.userInteracted = true;
     const factor = ev.deltaY < 0 ? 1.12 : 0.89;
     zoomBy(factor, ev.clientX, ev.clientY);
   }, { passive: false });
 
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0) return;
+    state.userInteracted = true;
     canvas.setPointerCapture(ev.pointerId);
     const rect = canvas.getBoundingClientRect();
     const sx = ev.clientX - rect.left;
@@ -1042,15 +1059,17 @@
       .eg-chip.active { opacity: 1; border-color: rgba(148,163,184,0.55); background: rgba(148,163,184,0.09); }
       .eg-chip-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; flex-shrink: 0; }
       .eg-stage-wrap {
-        display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; min-height: 520px; align-items: stretch;
+        display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px;
+        height: clamp(500px, 64vh, 680px); min-height: 460px; align-items: stretch;
       }
       .eg-expanded .eg-stage-wrap { flex: 1; min-height: 0; height: 100%; }
       .eg-canvas-wrap {
-        position: relative; min-height: 520px; border-radius: 12px; overflow: hidden;
-        border: 1px solid rgba(148,163,184,0.25);
+        position: relative; height: 100%; min-height: 460px; border-radius: 12px; overflow: hidden;
+        border: 1px solid rgba(148,163,184,0.25); background: #070a12;
       }
+      html:not(.dark) .eg-canvas-wrap { background: #eef2f8; }
       .eg-expanded .eg-canvas-wrap { min-height: 0; height: 100%; }
-      .eg-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      .eg-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
       .eg-hint {
         position: absolute; left: 12px; bottom: 10px; padding: 4px 10px; border-radius: 999px;
         font-size: 11px; pointer-events: none; background: rgba(15,23,42,0.68); color: #cbd5e1;
@@ -1088,7 +1107,10 @@
       .eg-insp-neighbor-kind { font-size: 11px; opacity: 0.6; flex-shrink: 0; }
       .eg-insp-empty { font-size: 13px; opacity: 0.72; line-height: 1.5; }
       @media (max-width: 820px) {
-        .eg-stage-wrap { grid-template-columns: 1fr; }
+        .eg-stage-wrap { grid-template-columns: 1fr; height: auto; }
+        .eg-expanded .eg-stage-wrap { height: 100%; }
+        .eg-canvas-wrap { height: 420px; min-height: 360px; }
+        .eg-expanded .eg-canvas-wrap { height: 100%; min-height: 220px; }
         .eg-inspector, .eg-expanded .eg-inspector { width: 100%; max-height: 240px; }
       }
     `;

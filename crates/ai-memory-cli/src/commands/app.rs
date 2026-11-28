@@ -65,10 +65,7 @@ pub async fn run(config: &Config, args: AppArgs, config_path: Option<&Path>) -> 
 
     if already_running {
         if !args.no_open {
-            super::windows_tray::ensure_detached_tray(&config.data_dir, &exe_path, config_path);
-            if !super::windows_tray::restore_if_running(&config.data_dir) {
-                open_desktop_window(&app_url, &config.data_dir);
-            }
+            launch_desktop_shell_or_restore(&app_url, &config.data_dir, &exe_path, config_path);
         }
         println!("Estação-ai ativa em: {app_url}");
         return Ok(());
@@ -83,10 +80,7 @@ pub async fn run(config: &Config, args: AppArgs, config_path: Option<&Path>) -> 
                 .await
                 .is_ok_and(|r| r.status().is_success())
             {
-                super::windows_tray::ensure_detached_tray(&config.data_dir, &exe_path, config_path);
-                if !super::windows_tray::restore_if_running(&config.data_dir) {
-                    open_desktop_window(&app_url, &config.data_dir);
-                }
+                launch_desktop_shell_or_restore(&app_url, &config.data_dir, &exe_path, config_path);
                 println!("Estação-ai ativa em: {app_url}");
                 return Ok(());
             }
@@ -110,14 +104,12 @@ pub async fn run(config: &Config, args: AppArgs, config_path: Option<&Path>) -> 
                 .is_ok_and(|r| r.status().is_success())
             {
                 if !no_open {
-                    super::windows_tray::ensure_detached_tray(
+                    launch_desktop_shell_or_restore(
+                        &launch_url,
                         &data_dir,
                         &tray_exe,
                         tray_cfg.as_deref(),
                     );
-                    if !super::windows_tray::restore_if_running(&data_dir) {
-                        open_desktop_window(&launch_url, &data_dir);
-                    }
                 }
                 break;
             }
@@ -225,7 +217,7 @@ fn ensure_windows_self_install() -> PathBuf {
     target_exe
 }
 
-pub fn open_desktop_window(url: &str, data_dir: &Path) {
+fn build_desktop_target_url(url: &str, data_dir: &Path) -> String {
     // The desktop owner can enroll a signer. Only a digest is stored on disk.
     // The fragment stays in the browser and is never sent in an HTTP URL.
     let mut target = url.to_owned();
@@ -247,6 +239,35 @@ pub fn open_desktop_window(url: &str, data_dir: &Path) {
             target = local.to_string();
         }
     }
+    target
+}
+
+fn launch_desktop_shell_or_restore(
+    url: &str,
+    data_dir: &Path,
+    exe_path: &Path,
+    config_path: Option<&Path>,
+) {
+    let target = build_desktop_target_url(url, data_dir);
+    // 1. Prefer the native Tauri desktop binary (`estacao-ai-desktop`) when present.
+    if launch_native_desktop_shell() {
+        super::windows_tray::ensure_detached_tray(data_dir, exe_path, config_path);
+        return;
+    }
+    // 2. On Linux, prefer the native GTK3 + WebKit2 desktop window integrated with the system tray.
+    if super::windows_tray::launch_linux_native_app(&target, data_dir, exe_path, config_path) {
+        return;
+    }
+    // 3. Otherwise ensure tray and restore/launch isolated frameless Chromium app window.
+    super::windows_tray::ensure_detached_tray(data_dir, exe_path, config_path);
+    if super::windows_tray::restore_if_running(data_dir) {
+        return;
+    }
+    open_desktop_window(url, data_dir);
+}
+
+pub fn open_desktop_window(url: &str, data_dir: &Path) {
+    let target = build_desktop_target_url(url, data_dir);
     let url = target.as_str();
     // 1. Prefer the native Tauri desktop binary (`estacao-ai-desktop`) when present.
     if launch_native_desktop_shell() {
@@ -360,7 +381,7 @@ fn launch_isolated_app_window(url: &str, data_dir: &Path) -> bool {
         cmd.args([
             app_arg.as_str(),
             profile_arg.as_str(),
-            "--class=Estacao-ai",
+            "--class=EstacaoAI",
             "--no-first-run",
             "--no-default-browser-check",
         ])
