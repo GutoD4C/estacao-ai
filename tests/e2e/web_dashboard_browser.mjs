@@ -249,7 +249,7 @@ async function main() {
   await usage(calls);await usage(calls);
   // The Nostr case uses its own signed invite fixture and does not open the usage dashboard.
   if (selectedCase !== 'nostr-invites') await until(async () => {
-    const response = await request('/web/w/team/app');return (await response.text()).includes('Captured calls</span><strong>5</strong>');
+    const response = await request('/web/w/team/app');return (await response.text()).includes('Chamadas capturadas</span><strong>5</strong>');
   }, 'Hook reports never reached the real server');
   const profile = path.join(artifacts, 'chromium');
   launch(browserBinary, ['--headless', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], env, 'browser.log');
@@ -301,7 +301,7 @@ async function main() {
   const cases = {
     async notifications() {
       await cdp.goto(base+'/web/docs','.docs-search');
-      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="No messages waiting for agents."'),'Initial notification check failed');
+      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="Nenhuma mensagem aguardando agentes."'),'Initial notification check failed');
       assert(await cdp.evaluate('getComputedStyle(document.getElementById("inbox-pending-count")).display==="none"'));
       const anonymous=await fetch(base+'/web/inbox/notifications',{headers:{Accept:'application/json'},redirect:'manual'});assert.equal(anonymous.status,401);
       const sent=await (await request('/web/messages',{from_workspace:'team',from_project:'other',to_workspace:'other',to_project:'app',to_agent:'gemini-cli',subject:'Notification fixture',body:'Synthetic pending message.'})).json();
@@ -323,7 +323,7 @@ async function main() {
       await until(()=>cdp.evaluate('new URL(location.href).searchParams.get("state")==="claimed"&&!!document.querySelector(".mail-row[data-state=claimed]")'),'State selector did not load collected history');
       assert.equal(new URL(await cdp.evaluate('document.querySelector(".segmented-tabs a[aria-current]").href')).searchParams.get('state'),'claimed');
       await cdp.goto(base+'/web/docs','.docs-search');await cdp.reload();
-      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="No messages waiting for agents."'),'Notifications did not survive navigation and reload');
+      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="Nenhuma mensagem aguardando agentes."'),'Notifications did not survive navigation and reload');
     },
     async 'resumed-session'() {
       const resumedId=crypto.randomUUID(),endpoint='/api/v1/workspaces/team/projects/app/sessions';
@@ -334,10 +334,10 @@ async function main() {
       await capture('post-tool-use');
       await until(async()=>{const row=await recorded(true);return !!row&&!row.ended_at;},'New scoped work must reopen the read view');
       assert.equal(await recorded(false),undefined,'Completed listing must exclude resumed work before pagination');
-      await cdp.goto(project+'/s/'+resumedId,'#scrubber');assert(await cdp.evaluate('document.querySelector("main").textContent.includes("still open")'));
+      await cdp.goto(project+'/s/'+resumedId,'#scrubber');assert(await cdp.evaluate('document.querySelector("main").textContent.includes("ainda aberta")'));
       const foreign=await fetch(base+'/web/w/team/other/s/'+resumedId,{headers:{Authorization:'Bearer '+token}});assert.equal(foreign.status,404);
       await capture('session-end');await until(async()=>!!(await recorded(false))?.ended_at,'A later SessionEnd must close resumed work');
-      await cdp.reload();assert.equal(await cdp.evaluate('document.querySelector("main").textContent.includes("still open")'),false);
+      await cdp.reload();assert.equal(await cdp.evaluate('document.querySelector("main").textContent.includes("ainda aberta")'),false);
     },
     async tabs() {
       await cdp.goto(project, '#project-panel-overview');await selected('overview');
@@ -445,7 +445,7 @@ async function main() {
         await cdp.goto(inbox, row(resumedId));await open(resumedId, 'begin');
         await fill(resumedId, 'Unsaved before navigation', 'Unsaved before navigation.');
         await cdp.goto(base + '/web/docs', '.docs-search');await cdp.goto(inbox, '.held-note');
-        assert(await cdp.evaluate('document.querySelector(".held-note").textContent.includes("1 held for editing")'));
+        assert(await cdp.evaluate('document.querySelector(".held-note").textContent.includes("1 mensagem retida para edição")'));
         assert.equal(pop(resumedId), null, 'Leaving the editor must not release held mail');
         const heldHref = await cdp.evaluate('document.querySelector(".held-note a").href');
         assert.equal(new URL(heldHref).searchParams.get('state'), 'editing');
@@ -486,11 +486,11 @@ async function main() {
         const hook=spawnSync(binary,['--data-dir',client,'hook','--event','post-tool-use','--agent','claude-code','--server-url',base,'--auth-token',token],{...options,input:JSON.stringify({session_id:sid,cwd,transcript_path:transcript,tool_name:'Bash',tool_input:{command:'echo fixture'},tool_response:'fixture'})});
         assert.equal(hook.status,0,'Native catch-up hook failed: '+hook.stderr);
         const drain=spawnSync(binary,['--data-dir',client,'hook-drain'],options);assert.equal(drain.status,0,'Native catch-up drain failed: '+drain.stderr);
-        await until(async()=> (await (await request('/web/w/backlog/capture')).text()).includes('Captured calls</span><strong>'+expected+'</strong>'),'Native backlog did not reach '+expected+' distinct stored responses');
+        await until(async()=> (await (await request('/web/w/backlog/capture')).text()).includes('Chamadas capturadas</span><strong>'+expected+'</strong>'),'Native backlog did not reach '+expected+' distinct stored responses');
       }
       await cdp.goto(base+'/web/w/backlog/capture?tab=tokens','#token-usage');
       assert.equal(await cdp.evaluate('Number(document.querySelector(".usage-metrics strong").textContent)'),300);
-      assert(await cdp.evaluate('document.querySelector(".usage-pagination").textContent.includes("300 matching responses")'));
+      assert(await cdp.evaluate('document.querySelector(".usage-pagination").textContent.includes("300 respostas correspondentes")'));
     },
     async 'session-live-usage'() {
       await cdp.goto(project+'/s/'+id,'#token-usage');
@@ -508,9 +508,9 @@ async function main() {
       const publish=async rows=>request(hook,{session_id:sid,tool_name:'Bash',tool_input:{command:'echo synthetic'},tool_response:'synthetic',_ai_memory_usage_calls:rows.map(row=>({cache_read_tokens:0,cache_write_tokens:0,...row}))});
       await request('/hook?'+new URLSearchParams({workspace,project:name,agent:'codex',event:'session-start'}),{session_id:sid});
       await publish(Array.from({length:56},(_,n)=>({call_id:'bulk-'+n,input_tokens:1000+n,output_tokens:10,model:'bulk-model'})));
-      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Captured calls</span><strong>56</strong>'),'History fixture did not settle');
+      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Chamadas capturadas</span><strong>56</strong>'),'History fixture did not settle');
       await publish([{call_id:'tiny-newest',input_tokens:1,output_tokens:1,model:'unique-tiny-model'}]);
-      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Captured calls</span><strong>57</strong>'),'Small response did not settle');
+      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Chamadas capturadas</span><strong>57</strong>'),'Small response did not settle');
       await cdp.goto(href+'?tab=tokens','#token-usage');await selected('tokens');
       assert.equal(await cdp.evaluate('document.querySelectorAll("[data-call-row]").length'),50);
       assert(!await cdp.evaluate('document.querySelector(".usage-results").textContent.includes("tiny-newest")'));
@@ -535,7 +535,7 @@ async function main() {
       await request('/hook?'+new URLSearchParams({workspace:'investigation',project:'app',agent:'codex',event:'session-start'}),{session_id:sid});
       const rows=Array.from({length:57},(_,n)=>({call_id:'context-'+n,model:n===56?'rare-model':'bulk-model',input_tokens:20,output_tokens:2,cache_read_tokens:0,cache_write_tokens:0,context:{turn_id:'native-turn',response_id:'native-'+n,recorded_at:'2026-10-01T12:00:00Z',tools:[{id:'exec-1',name:'exec_command',relation:'turn',is_error:true}]}}));
       await request(hook,{session_id:sid,tool_name:'Bash',tool_input:{command:'echo synthetic'},tool_response:'synthetic',_ai_memory_usage_calls:rows});
-      await until(async()=> (await (await request('/web/w/investigation/app')).text()).includes('Captured calls</span><strong>57</strong>'),'Context fixture never reached storage');
+      await until(async()=> (await (await request('/web/w/investigation/app')).text()).includes('Chamadas capturadas</span><strong>57</strong>'),'Context fixture never reached storage');
       await cdp.goto(href+'?tab=tokens','#token-usage');
       await cdp.evaluate(`document.querySelector('[name=calls_model]').value='rare-model';document.querySelector('[name=calls_agent]').value='codex';document.querySelector('[name=calls_session]').value=${literal(sid)};document.querySelector('[name=calls_from]').value='2026-10-01T12:00:00';document.querySelector('[name=calls_until]').value='2026-10-01T12:00:01';document.querySelector('[name=calls_tool]').value='exec_command';document.getElementById('call-query').requestSubmit()`);
       await until(()=>cdp.evaluate('document.querySelectorAll("[data-call-row]").length===1&&!document.querySelector("#call-query").hasAttribute("aria-busy")'),'Server investigation filters did not isolate the response outside the first fifty');
@@ -548,9 +548,9 @@ async function main() {
     },
     async 'feature-states'() {
       await cdp.goto(base+'/web/docs/features','.installation-status');
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="learning"]').textContent.includes("Unavailable without LLM")`));
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="external-clients"]').textContent.includes("Client setup unknown")`));
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="consolidation"]').textContent.includes("Next step:")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="learning"]').textContent.includes("Indisponível sem LLM")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="external-clients"]').textContent.includes("Configuração do cliente desconhecida")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="consolidation"]').textContent.includes("Próximo passo:")`));
       assert.equal((await fetch(base+'/api/v1/docs/features/status',{redirect:'manual'})).status,401);
       const status=await (await request('/api/v1/docs/features/status')).json();assert.equal(status.features.find(f=>f.id==='embeddings').state,'Not configured');
     },
@@ -568,7 +568,7 @@ async function main() {
       const href=await cdp.evaluate(`document.querySelector('[data-hit-path="concepts/evidence.md"] a').href`);assert.equal(new URL(href).searchParams.get('recall_q'),'Verificationneedle');
       await cdp.goto(href,'.knowledge-evidence');assert(await cdp.evaluate('document.querySelector(".knowledge-evidence").textContent.includes("Session '+sid+'")'));
       await cdp.evaluate('document.querySelector(".knowledge-evidence a.secondary-button").click()');await until(()=>cdp.evaluate('!!document.querySelector("[data-page-recall-trace]")'),'Page did not recompute its actual recall trace');
-      assert(await cdp.evaluate('document.querySelector(".knowledge-evidence").textContent.includes("Recomputed now")'));
+      assert(await cdp.evaluate('document.querySelector(".knowledge-evidence").textContent.includes("Recalculado agora")'));
       for(const width of [320,390]) {await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:960,deviceScaleFactor:1,mobile:true});assert(await cdp.evaluate('document.documentElement.scrollWidth<=innerWidth'),'Knowledge evidence overflows the viewport');}
       await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
     },

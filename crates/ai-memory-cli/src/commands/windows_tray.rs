@@ -16,6 +16,7 @@ use fs2::FileExt as _;
 use crate::cli::TrayArgs;
 use crate::config::Config;
 
+#[cfg(any(target_os = "linux", test))]
 const LOGO_PNG: &[u8] = include_bytes!("../../../../docs/logo.png");
 const TRAY_LOCK_FILE: &str = ".tray.lock";
 const TRAY_RESTORE_REQ: &str = "tray-restore.req";
