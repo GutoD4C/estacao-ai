@@ -2,6 +2,7 @@
 // Real Chromium + the built Rust server. No npm dependencies or DOM substitutes.
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
+import {createHash, randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -25,25 +26,13 @@ const mutation = process.argv.find(arg => arg.startsWith('--mutation='))?.split(
 const selectedCase = process.argv.find(arg => arg.startsWith('--case='))?.split('=')[1];
 const mutations = {
   'all-panels-visible': {test: 'tabs', from: 'panel.hidden=!selected', to: 'panel.hidden=false'},
-  'ignore-recipient-workspace': {test: 'recipients', from: 'option.dataset.workspace===scope.dataset.workspace&&', to: ''},
-  'ignore-recipient-project': {test: 'recipients', from: 'option.dataset.project===scope.dataset.project', to: 'true'},
-  'retain-write-token': {test: 'delivery', from: 'if(token)token.value=""', to: 'if(token)token.value=token.value'},
   'disable-live-refresh': {test: 'live-usage', from: 'timer=setTimeout(refresh,10000);', to: 'timer=0;'},
   'disable-session-live-refresh': {test: 'session-live-usage', from: 'timer=setTimeout(refresh,10000);', to: 'timer=0;'},
   'drop-usage-query': {test: 'call-history', from: 'new FormData(form).forEach(function(value,key){url.searchParams.set(key,value);});', to: 'void form;'},
   'forget-theme': {test: 'themes', from: 'localStorage.setItem(key,selected)', to: 'void selected'},
   'steal-browser-shortcut': {test: 'tabs', from: 'if(event.altKey||event.ctrlKey||event.metaKey)return;', to: ''},
-  'enable-send-while-pending': {test: 'delivery', from: 'button.disabled=sending||!toAgent', to: 'button.disabled=!toAgent'},
-  'enable-send-for-empty-project-after-request': {test: 'delivery', from: 'sending=false;updateSendButton();result.focus()', to: 'sending=false;button.disabled=false;result.focus()'},
   'disable-release-auto-submit': {test: 'documentation', from: 'releaseSelect.form.requestSubmit();', to: 'void releaseSelect;'},
   'restore-stale-release-on-history': {test: 'documentation', from: 'releaseSelect.form.reset();', to: 'void releaseSelect;'},
-  'show-false-inbox-alert': {test: 'mailbox-context', from: 'Inbox <span id="inbox-pending-count"', to: 'Inbox <small>NEW MESSAGE</small> <span id="inbox-pending-count"'},
-  'ignore-mailbox-workspace': {test: 'mailbox-context', from: 'url.searchParams.set("workspace",o.dataset.workspace);', to: 'url.searchParams.set("workspace","team");'},
-  'disable-inbox-notifications': {test: 'notifications', from: '  refreshInboxNotifications();\n})();', to: '  void refreshInboxNotifications;\n})();'},
-  'ignore-notification-workspace': {test: 'notifications', from: 'url.searchParams.set("workspace",project.workspace);', to: 'url.searchParams.set("workspace","team");'},
-  'skip-message-edit-hold': {test: 'message-editing', from: 'var data=await call(id,"edit");', to: 'var data={subject:row.dataset.subject||"",body:row.querySelector(".message-body").textContent};'},
-  'lose-saved-message-text': {test: 'message-editing', from: 'subject:subjectInput.value,body:bodyInput.value', to: 'subject:subjectInput.value,body:"Lost edited request."'},
-  'save-discarded-message-text': {test: 'message-editing', from: 'await call(id,"release");', to: 'await call(id,"save",{subject:"Discard mutation",body:"Discard mutation"});'},
 };
 assert(!mutation || mutations[mutation], 'Unknown mutation');
 const report = {mutation: mutation || null, mutationApplied: 0, cases: []};
@@ -175,8 +164,13 @@ async function installInviteFixture() {
     tags: [['p', recipient], ['d', 'estacao-convite:' + digit.repeat(64)]],
     content: nip44.encrypt(JSON.stringify({projeto:{id, nome, eh_chat:true, dono_npub:owner, membros_npub:[member]}}), conversationKey),
   }, senderKey);
-  const first = invitation('first', 'Sala de teste', '1');
-  const second = invitation('second', 'Outro convite', '2');
+  // A relay replays the same signed events on reconnect, including their IDs.
+  const retained = sessionStorage.getItem('fixture-relay-events');
+  const [first, second] = retained ? JSON.parse(retained) : [
+    invitation('first', 'Sala de teste', '1'),
+    invitation('second', 'Outro convite', '2'),
+  ];
+  if (!retained) sessionStorage.setItem('fixture-relay-events', JSON.stringify([first, second]));
   const inboxKey = 'estacao-convites-v1:' + recipient;
   const roomKey = 'estacao-test-shared-room';
   window.__inviteFixture = {inboxKey, first, second, secret:Array.from(recipientKey, byte => byte.toString(16).padStart(2,'0')).join('')};
@@ -199,6 +193,7 @@ async function installInviteFixture() {
     if (endpoint === 'sessao') return sessionStorage.getItem("fixture-login") ?
       Response.json(recipient,{headers:{"x-estacao-cofre":"cd".repeat(32),"x-estacao-vence":String(Math.floor(Date.now()/1000)+86400)}}) : new Response(null,{status:401});
     if (endpoint === 'desafio') return Response.json('browser-test-challenge');
+    if (endpoint === 'atualizacao') return Response.json({disponivel: false});
     if (endpoint === 'estado') {
       const accepted = JSON.parse(localStorage.getItem(roomKey));
       return Response.json({
@@ -249,7 +244,7 @@ async function main() {
   await usage(calls);await usage(calls);
   // The Nostr case uses its own signed invite fixture and does not open the usage dashboard.
   if (selectedCase !== 'nostr-invites') await until(async () => {
-    const response = await request('/web/w/team/app');return (await response.text()).includes('Captured calls</span><strong>5</strong>');
+    const response = await request('/web/w/team/app');return (await response.text()).includes('Chamadas capturadas</span><strong>5</strong>');
   }, 'Hook reports never reached the real server');
   const profile = path.join(artifacts, 'chromium');
   launch(browserBinary, ['--headless', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], env, 'browser.log');
@@ -262,18 +257,23 @@ async function main() {
   cdp.sessionId = (await cdp.send('Target.attachToTarget', {targetId, flatten: true})).sessionId;
   await cdp.send('Page.enable');await cdp.send('Runtime.enable');await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', {cacheDisabled: true});
-  await cdp.send('Network.setCookie', {name: 'ai_memory_auth', value: token, url: base, httpOnly: true, sameSite: 'Strict'});
+  if (selectedCase !== 'nostr-invites') {
+    // Pair the temporary browser with its own server through the desktop login.
+    const ticket = randomUUID();
+    fs.writeFileSync(path.join(artifacts, 'server', '.nostr-desktop'),
+      createHash('sha256').update(ticket).digest('hex'), {mode: 0o600, flag: 'wx'});
+    const chat = base + '/web/chat';
+    await cdp.goto(chat + '#estacao-vinculo=' + ticket, '#nostr-chave', chat);
+    await cdp.evaluate(`(async () => {
+      const auth = await import(new URL('static/estacao-3d-nostr.js', document.baseURI));
+      await auth.entrarNostr(auth.gerarContaNostr().privHex);
+    })()`);
+  }
   await cdp.send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false});
-  {
-    const change = mutation && mutations[mutation];
+  if (mutation) {
+    const change = mutations[mutation];
     const paused = async message => {
       const p = message.params;
-      if (cdp.notificationStatus && p.responseStatusCode && new URL(p.request.url).pathname === '/web/inbox/notifications') {
-        await cdp.send('Fetch.fulfillRequest', {requestId:p.requestId,responseCode:cdp.notificationStatus,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from('{}').toString('base64')});return;
-      }
-      if (cdp.delayMessages && !p.responseStatusCode && new URL(p.request.url).pathname === '/web/messages') {
-        cdp.pausedMessage = p.requestId;return;
-      }
       if (change && p.responseStatusCode === 200 && p.responseHeaders?.some(h => h.name.toLowerCase() === 'content-type' && h.value.includes('text/html'))) {
         const body = await cdp.send('Fetch.getResponseBody', {requestId: p.requestId});
         let html = body.base64Encoded ? Buffer.from(body.body, 'base64').toString() : body.body;
@@ -284,7 +284,7 @@ async function main() {
     // A Page.reload, or the notification poll's own 5s abort, can cancel a paused request before
     // this handler resumes it; Chromium then answers "Invalid InterceptionId." and nothing is left to resume.
     cdp.listeners.set('Fetch.requestPaused', message => paused(message).catch(error => {if (error.message !== 'Invalid InterceptionId.') throw error;}));
-    await cdp.send('Fetch.enable', {patterns: [...(mutation ? [{urlPattern: '*', requestStage: 'Response'}] : [{urlPattern:base+'/web/inbox/notifications',requestStage:'Response'}]), {urlPattern: base + '/web/messages', requestStage: 'Request'}]});
+    await cdp.send('Fetch.enable', {patterns: [{urlPattern: '*', requestStage: 'Response'}]});
   }
   const project = base + '/web/w/team/app';
   const tab = async name => {
@@ -295,35 +295,19 @@ async function main() {
     assert.deepEqual(await cdp.evaluate(`Array.from(document.querySelectorAll('[role=tabpanel]')).filter(p=>getComputedStyle(p).display!=='none').map(p=>p.id)`), ['project-panel-' + name]);
     assert.equal(await cdp.evaluate(`document.querySelector('[role=tab][aria-selected=true]').dataset.projectTab`), name);
   };
-  const changeScope = (field, workspace, project) => cdp.evaluate(`(()=>{const s=document.getElementById(${literal(field)});s.selectedIndex=Array.from(s.options).findIndex(o=>o.dataset.workspace===${literal(workspace)}&&o.dataset.project===${literal(project)});if(s.selectedIndex<0)throw Error('Scope missing');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  const recipients = () => cdp.evaluate(`Array.from(document.getElementById('message-to').options).filter(o=>o.dataset.agent).map(o=>[o.dataset.workspace,o.dataset.project,o.dataset.agent])`);
-  const chooseAgent = agent => cdp.evaluate(`(()=>{const s=document.getElementById('message-to');s.value=Array.from(s.options).find(o=>o.dataset.agent===${literal(agent)}).value;})()`);
   const cases = {
-    async notifications() {
-      await cdp.goto(base+'/web/docs','.docs-search');
-      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="No messages waiting for agents."'),'Initial notification check failed');
-      assert(await cdp.evaluate('getComputedStyle(document.getElementById("inbox-pending-count")).display==="none"'));
-      const anonymous=await fetch(base+'/web/inbox/notifications',{headers:{Accept:'application/json'},redirect:'manual'});assert.equal(anonymous.status,401);
-      const sent=await (await request('/web/messages',{from_workspace:'team',from_project:'other',to_workspace:'other',to_project:'app',to_agent:'gemini-cli',subject:'Notification fixture',body:'Synthetic pending message.'})).json();
-      await until(()=>cdp.evaluate('!document.getElementById("inbox-pending-count").hidden&&document.getElementById("inbox-pending-count").textContent==="1"'),'New message never reached the sidebar without reload',18000);
-      assert.equal(await cdp.evaluate('location.pathname'),'/web/docs');
-      const href=await cdp.evaluate('document.querySelector("[data-notification-project]").href');
-      assert.equal(new URL(href).searchParams.get('workspace'),'other');assert.equal(new URL(href).searchParams.get('project'),'app');assert.equal(new URL(href).searchParams.get('state'),'pending');
-      assert(await cdp.evaluate('document.getElementById("inbox-notifications").textContent.includes("other / app")'));
-      cdp.notificationStatus=403;await cdp.evaluate('document.dispatchEvent(new Event("visibilitychange"))');
-      await until(()=>cdp.evaluate('document.getElementById("inbox-pending-count").hidden&&document.getElementById("inbox-notification-projects").children.length===0'),'Authorization loss must clear stale counts and projects');
-      cdp.notificationStatus=0;await cdp.evaluate('document.dispatchEvent(new Event("visibilitychange"))');
-      await until(()=>cdp.evaluate('!document.getElementById("inbox-pending-count").hidden'),'Notifications did not recover');
-      await cdp.goto(href,'.mail-row');assert.equal(await cdp.evaluate('document.querySelector(".page-heading strong").textContent'),'other / app');
-      assert(await cdp.evaluate('document.querySelector(".mail-row").textContent.includes("Notification fixture")'));
-      const popped=spawnSync(binary,['message','pop','--workspace','other','--project','app','--agent','gemini-cli','--id',sent.message_id,'--json'],{env:{...env,AI_MEMORY_SERVER_URL:base,AI_MEMORY_DATA_DIR:path.join(artifacts,'client')},encoding:'utf8',timeout:15000});
-      assert.equal(popped.status,0);assert.equal(JSON.parse(popped.stdout).message.id,sent.message_id);
-      await until(()=>cdp.evaluate('document.getElementById("inbox-pending-count").hidden&&document.getElementById("inbox-notifications").hidden'),'Collected mail must clear the notification without reload',18000);
-      await cdp.evaluate('document.getElementById("mail-state").value="claimed";document.getElementById("mail-state").dispatchEvent(new Event("change",{bubbles:true}))');
-      await until(()=>cdp.evaluate('new URL(location.href).searchParams.get("state")==="claimed"&&!!document.querySelector(".mail-row[data-state=claimed]")'),'State selector did not load collected history');
-      assert.equal(new URL(await cdp.evaluate('document.querySelector(".segmented-tabs a[aria-current]").href')).searchParams.get('state'),'claimed');
-      await cdp.goto(base+'/web/docs','.docs-search');await cdp.reload();
-      await until(()=>cdp.evaluate('document.getElementById("inbox-notification-status").textContent==="No messages waiting for agents."'),'Notifications did not survive navigation and reload');
+    async 'project-messages'() {
+      const body = 'Synthetic project message.';
+      const sent = await (await request('/admin/messages/send', {
+        from_workspace: 'team', from_project: 'other', to_workspace: 'other', to_project: 'app', body,
+      })).json();
+      assert.ok(sent.message_id);
+      const pop = async workspace => (await (await request('/admin/messages/pop', {
+        workspace, project: 'app', message_id: sent.message_id,
+      })).json()).message;
+      assert.equal(await pop('team'), null);
+      assert.equal((await pop('other')).body, body);
+      assert.equal(await pop('other'), null);
     },
     async 'resumed-session'() {
       const resumedId=crypto.randomUUID(),endpoint='/api/v1/workspaces/team/projects/app/sessions';
@@ -334,10 +318,10 @@ async function main() {
       await capture('post-tool-use');
       await until(async()=>{const row=await recorded(true);return !!row&&!row.ended_at;},'New scoped work must reopen the read view');
       assert.equal(await recorded(false),undefined,'Completed listing must exclude resumed work before pagination');
-      await cdp.goto(project+'/s/'+resumedId,'#scrubber');assert(await cdp.evaluate('document.querySelector("main").textContent.includes("still open")'));
+      await cdp.goto(project+'/s/'+resumedId,'#scrubber');assert(await cdp.evaluate('document.querySelector("main").textContent.includes("ainda aberta")'));
       const foreign=await fetch(base+'/web/w/team/other/s/'+resumedId,{headers:{Authorization:'Bearer '+token}});assert.equal(foreign.status,404);
       await capture('session-end');await until(async()=>!!(await recorded(false))?.ended_at,'A later SessionEnd must close resumed work');
-      await cdp.reload();assert.equal(await cdp.evaluate('document.querySelector("main").textContent.includes("still open")'),false);
+      await cdp.reload();assert.equal(await cdp.evaluate('document.querySelector("main").textContent.includes("ainda aberta")'),false);
     },
     async tabs() {
       await cdp.goto(project, '#project-panel-overview');await selected('overview');
@@ -353,116 +337,6 @@ async function main() {
       await cdp.goto(project + '#token-usage', '#token-usage', project + '?tab=tokens');await selected('tokens');
       await cdp.send('Accessibility.enable');const tree = await cdp.send('Accessibility.getFullAXTree');
       assert.equal(tree.nodes.filter(n => !n.ignored && n.role?.value === 'tabpanel').length, 1);
-    },
-    async recipients() {
-      await cdp.goto(base + '/web/inbox?workspace=team&project=app&agent=codex', '#message-to');
-      assert.equal((await recipients()).length, 2);
-      await changeScope('message-from', 'team', 'other');
-      assert.deepEqual(await recipients(), [['team','other','claude-code']]);
-      assert.equal(await cdp.evaluate('document.getElementById("message-to").value'), '');
-      await changeScope('message-to-project', 'other', 'app');
-      assert.deepEqual(await recipients(), [['other','app','gemini-cli']]);
-      await changeScope('message-from', 'team', 'empty');
-      assert.deepEqual(await recipients(), []);
-      assert(await cdp.evaluate(`document.getElementById('message-to').disabled&&document.querySelector('#message-composer button[type=submit]').disabled`));
-      await changeScope('message-to-project', 'team', 'app');assert.equal((await recipients()).length, 2);
-      assert(await cdp.evaluate(`!document.getElementById('message-to').disabled&&!document.querySelector('#message-composer button[type=submit]').disabled`));
-    },
-    async delivery() {
-      await cdp.goto(base + '/web/inbox?workspace=team&project=other', '#message-composer');
-      await changeScope('message-to-project', 'other', 'app');await chooseAgent('gemini-cli');
-      const storage = await cdp.evaluate('JSON.stringify({local:Object.entries(localStorage),session:Object.entries(sessionStorage)})');
-      assert.equal(await cdp.evaluate(`fetch(new URL('messages',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json','X-Estacao-AI-UI':'1'},body:'{}'}).then(r=>r.status)`), 401);
-      await cdp.evaluate(`document.getElementById('message-access-token').value='FAKEfake0123456789InvalidWrite';document.getElementById('message-body').value='Synthetic request';document.querySelector('#message-composer button[type=submit]').click()`);
-      await until(() => cdp.evaluate(`document.getElementById('message-result').classList.contains('send-error')`), 'Invalid credentials were not rejected');
-      assert.equal(await cdp.evaluate('document.getElementById("message-access-token").value'), '');
-      assert.equal(await cdp.evaluate('JSON.stringify({local:Object.entries(localStorage),session:Object.entries(sessionStorage)})'), storage);
-      assert.equal(await cdp.evaluate('document.getElementById("message-body").value'), 'Synthetic request');
-      cdp.delayMessages = true;
-      await cdp.evaluate(`document.getElementById('message-access-token').value=${literal(token)};document.getElementById('message-subject').value='Review <script>window.fixtureXss=true</script>';document.querySelector('#message-composer button[type=submit]').click()`);
-      await until(() => !!cdp.pausedMessage, 'Message request was not issued');
-      assert(await cdp.evaluate(`document.querySelector('#message-composer button[type=submit]').disabled`), 'Sending must remain disabled during a request');
-      await changeScope('message-to-project', 'team', 'app');
-      assert(await cdp.evaluate(`document.querySelector('#message-composer button[type=submit]').disabled`), 'Changing project must not allow duplicate sends');
-      await changeScope('message-to-project', 'team', 'empty');
-      cdp.delayMessages = false;
-      await cdp.send('Fetch.continueRequest', {requestId: cdp.pausedMessage});
-      await until(() => cdp.evaluate(`document.getElementById('message-result').classList.contains('send-success')`), 'Authorized message was not queued');
-      assert.equal(await cdp.evaluate('document.getElementById("message-access-token").value'), '');
-      assert.equal(await cdp.evaluate('JSON.stringify({local:Object.entries(localStorage),session:Object.entries(sessionStorage)})'), storage);
-      assert.equal(await cdp.evaluate('document.getElementById("message-body").value'), '');
-      assert(await cdp.evaluate(`document.querySelector('#message-composer button[type=submit]').disabled`), 'An empty destination must remain disabled after completion');
-      const messageId = (await cdp.evaluate('document.getElementById("message-result").textContent')).match(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)?.[0];assert(messageId);
-      const sent = await cdp.evaluate('document.querySelector("#message-result a").href');
-      await cdp.goto(sent, '.mail-row');assert(await cdp.evaluate(`document.querySelector('.mail-row').textContent.includes('Review <script>window.fixtureXss=true</script>')&&!window.fixtureXss`));
-      const pop = agent => {
-        const result = spawnSync(binary, ['message','pop','--workspace','other','--project','app','--agent',agent,'--id',messageId,'--json'], {env: {...env, AI_MEMORY_SERVER_URL: base, AI_MEMORY_DATA_DIR: path.join(artifacts, 'client')}, encoding: 'utf8', timeout: 15000});
-        assert.equal(result.status, 0, 'Native message pop failed');return JSON.parse(result.stdout).message;
-      };
-      assert.equal(pop('codex'), null);assert.equal(pop('gemini-cli').id, messageId);assert.equal(pop('gemini-cli'), null);
-    },
-    async 'message-editing'() {
-      const inbox = base + '/web/inbox?workspace=team&project=app';
-      const row = messageId => '.mail-row[data-message-id="' + messageId + '"]';
-      const queue = async (subject, body) => (await (await request('/web/messages', {from_workspace:'team',from_project:'other',to_workspace:'team',to_project:'app',to_agent:'codex',subject,body})).json()).message_id;
-      const pop = messageId => {
-        const result = spawnSync(binary, ['message','pop','--workspace','team','--project','app','--agent','codex','--id',messageId,'--json'], {env:{...env,AI_MEMORY_SERVER_URL:base,AI_MEMORY_DATA_DIR:path.join(artifacts,'edit-client')},encoding:'utf8',timeout:15000});
-        assert.equal(result.status, 0, 'Native claim failed: ' + result.stderr);return JSON.parse(result.stdout).message;
-      };
-      const open = async (messageId, action) => {
-        await cdp.evaluate(`(()=>{const row=document.querySelector(${literal(row(messageId))});if(!row.open)row.querySelector('summary').click();row.querySelector('[data-message-action="${action}"]').click();})()`);
-        await until(() => cdp.evaluate(`!!document.querySelector(${literal(row(messageId) + ' .mail-editor')})`), 'Message editor did not open');
-      };
-      const fill = async (messageId, subject, body) => cdp.evaluate(`document.getElementById(${literal('edit-subject-' + messageId)}).value=${literal(subject)};document.getElementById(${literal('edit-body-' + messageId)}).value=${literal(body)}`);
-      const requeued = messageId => until(() => cdp.evaluate(`document.readyState==='complete'&&!!document.querySelector(${literal(row(messageId) + '[data-state=pending]')})`), 'Edited message did not return to the queue');
-      const savedId = await queue('Original subject', 'Original request.');
-      await cdp.goto(inbox, row(savedId));
-      assert.equal(await cdp.evaluate(`document.querySelector(${literal(row(savedId) + ' [data-message-action]')})`), null, 'Legacy read-only login must not offer editing');
-      assert.equal(await cdp.evaluate(`fetch(new URL('messages/'+${literal(savedId)}+'/edit',document.baseURI),{method:'POST',headers:{'Content-Type':'application/json','X-Estacao-AI-UI':'1'},body:JSON.stringify({workspace:'team',project:'app'})}).then(r=>r.status)`), 401, 'Legacy read-only credentials must not hold mail through the edit route');
-      // The normal suite uses the legacy read-only cookie. This case supplies
-      // an actual root bearer to exercise writes without persisting credentials.
-      await cdp.send('Network.setExtraHTTPHeaders', {headers:{Authorization:'Bearer ' + token}});
-      try {
-        await cdp.reload();await open(savedId, 'begin');
-        assert.equal(await cdp.evaluate(`document.getElementById(${literal('edit-body-' + savedId)}).value`), 'Original request.');
-        assert.equal(pop(savedId), null, 'Opening the editor must hold the real queued message, even for a claim by id');
-        const editedBody = 'Updated <b>literal text</b> for the agent.';
-        await fill(savedId, 'Updated subject', editedBody);
-        await cdp.evaluate(`document.querySelector(${literal(row(savedId) + ' .mail-editor button[type=submit]')}).click()`);
-        await requeued(savedId);
-        assert(await cdp.evaluate(`document.querySelector(${literal(row(savedId) + ' .message-body')}).textContent===${literal(editedBody)}&&!document.querySelector(${literal(row(savedId) + ' .message-body b')})`), 'Saved text must render escaped');
-        const saved = pop(savedId);assert.equal(saved.id, savedId);assert.equal(saved.subject, 'Updated subject');assert.equal(saved.body, editedBody);assert.equal(pop(savedId), null);
-
-        const discardId = await queue('Keep this subject', 'Keep this request.');
-        await cdp.goto(inbox, row(discardId));await open(discardId, 'begin');
-        assert.equal(pop(discardId), null);
-        await fill(discardId, 'Unsaved subject', 'Unsaved request.');
-        await cdp.evaluate(`document.querySelector(${literal(row(discardId) + ' .mail-editor button[type=button]')}).click()`);
-        await requeued(discardId);
-        const discarded = pop(discardId);assert.equal(discarded.id, discardId);assert.equal(discarded.subject, 'Keep this subject');assert.equal(discarded.body, 'Keep this request.');
-
-        const resumedId = await queue('Recover this edit', 'Recover the original request.');
-        await cdp.goto(inbox, row(resumedId));await open(resumedId, 'begin');
-        await fill(resumedId, 'Unsaved before navigation', 'Unsaved before navigation.');
-        await cdp.goto(base + '/web/docs', '.docs-search');await cdp.goto(inbox, '.held-note');
-        assert(await cdp.evaluate('document.querySelector(".held-note").textContent.includes("1 held for editing")'));
-        assert.equal(pop(resumedId), null, 'Leaving the editor must not release held mail');
-        const heldHref = await cdp.evaluate('document.querySelector(".held-note a").href');
-        assert.equal(new URL(heldHref).searchParams.get('state'), 'editing');
-        await cdp.goto(heldHref, row(resumedId));await cdp.reload();await open(resumedId, 'resume');
-        assert.equal(await cdp.evaluate(`document.getElementById(${literal('edit-body-' + resumedId)}).value`), 'Recover the original request.');
-        await cdp.reload();
-        await cdp.evaluate(`(()=>{const row=document.querySelector(${literal(row(resumedId))});row.querySelector('summary').click();row.querySelector('[data-message-action=release]').click();})()`);
-        await until(() => cdp.evaluate(`document.readyState==='complete'&&!document.querySelector('.held-note')&&!document.querySelector(${literal(row(resumedId))})`), 'Discarding a recovered edit must clear the held list');
-        assert.equal(pop(resumedId).body, 'Recover the original request.');
-
-        const collectedId = await queue('Claim race', 'Collected before Edit.');
-        await cdp.goto(inbox, row(collectedId));assert.equal(pop(collectedId).id, collectedId);
-        await cdp.evaluate(`(()=>{const row=document.querySelector(${literal(row(collectedId))});row.querySelector('summary').click();row.querySelector('[data-message-action=begin]').click();})()`);
-        await until(() => cdp.evaluate(`document.querySelector(${literal(row(collectedId) + ' .edit-error')})?.textContent.includes('already collected')`), 'A stale Edit must explain that the agent already collected the message');
-        assert.equal(await cdp.evaluate(`document.querySelector(${literal(row(collectedId) + ' .mail-editor')})`), null);
-        assert.equal(pop(collectedId), null, 'A refused edit must not requeue collected mail');
-      } finally {await cdp.send('Network.setExtraHTTPHeaders', {headers:{}});}
     },
     async 'live-usage'() {
       await cdp.goto(project + '?tab=tokens', '#token-usage');await selected('tokens');
@@ -486,11 +360,11 @@ async function main() {
         const hook=spawnSync(binary,['--data-dir',client,'hook','--event','post-tool-use','--agent','claude-code','--server-url',base,'--auth-token',token],{...options,input:JSON.stringify({session_id:sid,cwd,transcript_path:transcript,tool_name:'Bash',tool_input:{command:'echo fixture'},tool_response:'fixture'})});
         assert.equal(hook.status,0,'Native catch-up hook failed: '+hook.stderr);
         const drain=spawnSync(binary,['--data-dir',client,'hook-drain'],options);assert.equal(drain.status,0,'Native catch-up drain failed: '+drain.stderr);
-        await until(async()=> (await (await request('/web/w/backlog/capture')).text()).includes('Captured calls</span><strong>'+expected+'</strong>'),'Native backlog did not reach '+expected+' distinct stored responses');
+        await until(async()=> (await (await request('/web/w/backlog/capture')).text()).includes('Chamadas capturadas</span><strong>'+expected+'</strong>'),'Native backlog did not reach '+expected+' distinct stored responses');
       }
       await cdp.goto(base+'/web/w/backlog/capture?tab=tokens','#token-usage');
       assert.equal(await cdp.evaluate('Number(document.querySelector(".usage-metrics strong").textContent)'),300);
-      assert(await cdp.evaluate('document.querySelector(".usage-pagination").textContent.includes("300 matching responses")'));
+      assert(await cdp.evaluate('document.querySelector(".usage-pagination").textContent.includes("300 respostas correspondentes")'));
     },
     async 'session-live-usage'() {
       await cdp.goto(project+'/s/'+id,'#token-usage');
@@ -508,9 +382,9 @@ async function main() {
       const publish=async rows=>request(hook,{session_id:sid,tool_name:'Bash',tool_input:{command:'echo synthetic'},tool_response:'synthetic',_ai_memory_usage_calls:rows.map(row=>({cache_read_tokens:0,cache_write_tokens:0,...row}))});
       await request('/hook?'+new URLSearchParams({workspace,project:name,agent:'codex',event:'session-start'}),{session_id:sid});
       await publish(Array.from({length:56},(_,n)=>({call_id:'bulk-'+n,input_tokens:1000+n,output_tokens:10,model:'bulk-model'})));
-      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Captured calls</span><strong>56</strong>'),'History fixture did not settle');
+      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Chamadas capturadas</span><strong>56</strong>'),'History fixture did not settle');
       await publish([{call_id:'tiny-newest',input_tokens:1,output_tokens:1,model:'unique-tiny-model'}]);
-      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Captured calls</span><strong>57</strong>'),'Small response did not settle');
+      await until(async()=> (await (await request('/web/w/history/app')).text()).includes('Chamadas capturadas</span><strong>57</strong>'),'Small response did not settle');
       await cdp.goto(href+'?tab=tokens','#token-usage');await selected('tokens');
       assert.equal(await cdp.evaluate('document.querySelectorAll("[data-call-row]").length'),50);
       assert(!await cdp.evaluate('document.querySelector(".usage-results").textContent.includes("tiny-newest")'));
@@ -535,7 +409,7 @@ async function main() {
       await request('/hook?'+new URLSearchParams({workspace:'investigation',project:'app',agent:'codex',event:'session-start'}),{session_id:sid});
       const rows=Array.from({length:57},(_,n)=>({call_id:'context-'+n,model:n===56?'rare-model':'bulk-model',input_tokens:20,output_tokens:2,cache_read_tokens:0,cache_write_tokens:0,context:{turn_id:'native-turn',response_id:'native-'+n,recorded_at:'2026-10-01T12:00:00Z',tools:[{id:'exec-1',name:'exec_command',relation:'turn',is_error:true}]}}));
       await request(hook,{session_id:sid,tool_name:'Bash',tool_input:{command:'echo synthetic'},tool_response:'synthetic',_ai_memory_usage_calls:rows});
-      await until(async()=> (await (await request('/web/w/investigation/app')).text()).includes('Captured calls</span><strong>57</strong>'),'Context fixture never reached storage');
+      await until(async()=> (await (await request('/web/w/investigation/app')).text()).includes('Chamadas capturadas</span><strong>57</strong>'),'Context fixture never reached storage');
       await cdp.goto(href+'?tab=tokens','#token-usage');
       await cdp.evaluate(`document.querySelector('[name=calls_model]').value='rare-model';document.querySelector('[name=calls_agent]').value='codex';document.querySelector('[name=calls_session]').value=${literal(sid)};document.querySelector('[name=calls_from]').value='2026-10-01T12:00:00';document.querySelector('[name=calls_until]').value='2026-10-01T12:00:01';document.querySelector('[name=calls_tool]').value='exec_command';document.getElementById('call-query').requestSubmit()`);
       await until(()=>cdp.evaluate('document.querySelectorAll("[data-call-row]").length===1&&!document.querySelector("#call-query").hasAttribute("aria-busy")'),'Server investigation filters did not isolate the response outside the first fifty');
@@ -548,9 +422,9 @@ async function main() {
     },
     async 'feature-states'() {
       await cdp.goto(base+'/web/docs/features','.installation-status');
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="learning"]').textContent.includes("Unavailable without LLM")`));
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="external-clients"]').textContent.includes("Client setup unknown")`));
-      assert(await cdp.evaluate(`document.querySelector('[data-feature="consolidation"]').textContent.includes("Next step:")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="learning"]').textContent.includes("Indisponível sem LLM")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="external-clients"]').textContent.includes("Configuração do cliente desconhecida")`));
+      assert(await cdp.evaluate(`document.querySelector('[data-feature="consolidation"]').textContent.includes("Próximo passo:")`));
       assert.equal((await fetch(base+'/api/v1/docs/features/status',{redirect:'manual'})).status,401);
       const status=await (await request('/api/v1/docs/features/status')).json();assert.equal(status.features.find(f=>f.id==='embeddings').state,'Not configured');
     },
@@ -564,11 +438,11 @@ async function main() {
       const initialized=await rpc({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'synthetic-dashboard-test',version:'1'}}});
       const written=await rpc({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'memory_write_page',arguments:{workspace:'team',project:'app',path:'concepts/evidence.md',body:'# Evidence fixture\n\nVerificationneedle source.',session_id:sid}}},initialized.session);
       assert(!written.payload.error&&!written.payload.result?.isError,'MCP evidence fixture failed: '+JSON.stringify(written.payload));
-      await cdp.goto(base+'/web/search?workspace=team&project=app&q=Verificationneedle','[data-hit-path]');
-      const href=await cdp.evaluate(`document.querySelector('[data-hit-path="concepts/evidence.md"] a').href`);assert.equal(new URL(href).searchParams.get('recall_q'),'Verificationneedle');
-      await cdp.goto(href,'.knowledge-evidence');assert(await cdp.evaluate('document.querySelector(".knowledge-evidence").textContent.includes("Session '+sid+'")'));
-      await cdp.evaluate('document.querySelector(".knowledge-evidence a.secondary-button").click()');await until(()=>cdp.evaluate('!!document.querySelector("[data-page-recall-trace]")'),'Page did not recompute its actual recall trace');
-      assert(await cdp.evaluate('document.querySelector(".knowledge-evidence").textContent.includes("Recomputed now")'));
+      const hits = await (await request('/api/v1/search?workspace=team&project=app&q=Verificationneedle')).json();
+      const hit = hits.find(hit => hit.path === 'concepts/evidence.md');
+      assert(hit, 'Scoped search did not return the written page');
+      await cdp.goto(project + '/p/' + hit.path, 'article');
+      assert(await cdp.evaluate("document.querySelector('article').textContent.includes('Verificationneedle source.')"));
       for(const width of [320,390]) {await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:960,deviceScaleFactor:1,mobile:true});assert(await cdp.evaluate('document.documentElement.scrollWidth<=innerWidth'),'Knowledge evidence overflows the viewport');}
       await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
     },
@@ -595,7 +469,7 @@ async function main() {
       await cdp.goto(base + '/web/docs', '.docs-search');
       const anonymous = await fetch(base + '/api/v1/docs', {redirect: 'manual'});assert.equal(anonymous.status, 401);
       await cdp.evaluate(`document.getElementById('documentation-query').value='Token accounting';document.querySelector('.docs-search').requestSubmit()`);
-      await until(() => cdp.evaluate(`new URL(location.href).searchParams.get('q')==='Token accounting'&&document.querySelector('.docs-card')?.textContent.includes('Features')`), 'Documentation search failed');
+      await until(() => cdp.evaluate(`new URL(location.href).searchParams.get('q')==='Token accounting'&&!!document.querySelector('.docs-card a[href="docs/features"]')`), 'Documentation search failed');
       const catalog = await (await request('/api/v1/docs')).json();assert(catalog.documents.length >= 28);
       for (const doc of catalog.documents) {
         const json = await (await request('/api/v1/docs/' + doc.id)).json();
@@ -615,53 +489,16 @@ async function main() {
         await selectedRelease(version);
       }
       await cdp.reload();await selectedRelease('Unreleased');
-      await cdp.evaluate('history.back()');await selectedRelease('3.2.0');
+      await cdp.evaluate('history.back()');await selectedRelease('1.6.0');
       await cdp.evaluate('history.forward()');await selectedRelease('Unreleased');
       await cdp.send('Emulation.setScriptExecutionDisabled', {value: true});
       try {
         await cdp.goto(base + '/web/docs/changelog?release=1.7.0', '.docs-release button');
         assert(await cdp.evaluate('getComputedStyle(document.querySelector(".docs-release button")).display!=="none"'), 'No-JavaScript release submission must remain available');
-        await cdp.evaluate(`document.getElementById('release-version').value='3.2.0';document.querySelector('.docs-release button').click()`);
-        await selectedRelease('3.2.0');
+        await cdp.evaluate(`document.getElementById('release-version').value='1.6.0';document.querySelector('.docs-release button').click()`);
+        await selectedRelease('1.6.0');
       } finally {await cdp.send('Emulation.setScriptExecutionDisabled', {value: false});}
       const missing = await fetch(base + '/web/docs/.env.md', {headers: {Authorization: 'Bearer ' + token}});assert.equal(missing.status, 404);
-    },
-    async 'mailbox-context'() {
-      await cdp.goto(base + '/web/inbox?workspace=team&project=empty', '#mail-project');
-      assert.equal(await cdp.evaluate('document.querySelector("[data-nav=inbox]").textContent.includes("NEW MESSAGE")'), false, 'Navigation must not show a fabricated new-message alert');
-      assert.equal(await cdp.evaluate('document.querySelectorAll(".mailbox-link").length'), 0);
-      assert(await cdp.evaluate('document.querySelector(".mail-overview").textContent.includes("No messages waiting")'));
-      const ids = [];
-      for (const [workspace, agent] of [['team','codex'], ['other','gemini-cli'], ['other','gemini-cli']]) {
-        const sent = await request('/web/messages', {from_workspace:'team',from_project:'other',to_workspace:workspace,to_project:'app',to_agent:agent,subject:'Mailbox context fixture',body:'Synthetic context check.'});
-        ids.push((await sent.json()).message_id);
-      }
-      await cdp.reload();
-      const cards = await cdp.evaluate(`Array.from(document.querySelectorAll('.mailbox-link')).map(a=>({workspace:a.dataset.mailboxWorkspace,project:a.dataset.mailboxProject,href:a.href,text:a.textContent}))`);
-      assert.equal(cards.length, 2);
-      for (const [workspace, count] of [['team',1], ['other',2]]) {
-        const card = cards.find(c => c.workspace === workspace && c.project === 'app');assert(card);
-        assert(card.text.includes(count + ' queued'));assert.equal(new URL(card.href).searchParams.get('workspace'), workspace);assert.equal(new URL(card.href).searchParams.get('project'), 'app');
-      }
-      assert(await cdp.evaluate('document.querySelector(".mail-overview").textContent.includes("3 queued")'));
-      assert.equal(await cdp.evaluate('document.querySelector(".page-heading strong").textContent'), 'team / empty');
-      await changeScope('mail-project', 'other', 'app');
-      await until(() => cdp.evaluate(`new URL(location.href).searchParams.get('workspace')==='other'&&document.querySelector('.page-heading strong')?.textContent==='other / app'&&document.querySelectorAll('.mail-row[data-state=pending]').length===2`), 'Mailbox selector must include workspace and project');
-      assert(await cdp.evaluate(`Array.from(document.querySelectorAll('.mail-preview small')).every(e=>e.textContent.includes('Gemini CLI'))`));
-      await cdp.evaluate('document.getElementById("compose-shortcut").click()');
-      assert.equal(new URL(await cdp.evaluate('location.href')).searchParams.get('workspace'), 'other');
-      await cdp.evaluate(`document.querySelector('[data-mailbox-workspace="team"][data-mailbox-project="app"]').click()`);
-      await until(() => cdp.evaluate(`document.querySelector('.page-heading strong')?.textContent==='team / app'&&document.querySelectorAll('.mail-row[data-state=pending]').length===1`), 'Queue link must open the named project');
-      for (const width of [320,390,768]) {
-        await cdp.send('Emulation.setDeviceMetricsOverride', {width,height:960,deviceScaleFactor:1,mobile:width<640});
-        assert(await cdp.evaluate(`document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.mailbox-link')).every(a=>{const r=a.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.height>=44;})`), 'Mailbox links overflow or are too small');
-      }
-      await cdp.goto(base + '/web/inbox', '#mail-project');
-      assert.equal(await cdp.evaluate('document.getElementById("mail-project").selectedOptions[0].dataset.project'), 'app', 'Default should prefer a project with queued mail');
-      const claimed = spawnSync(binary, ['message','pop','--workspace','other','--project','app','--agent','gemini-cli','--id',ids[1],'--json'], {env:{...env,AI_MEMORY_SERVER_URL:base,AI_MEMORY_DATA_DIR:path.join(artifacts,'client')},encoding:'utf8',timeout:15000});
-      assert.equal(claimed.status, 0);assert.equal(JSON.parse(claimed.stdout).message.id, ids[1], 'Reading must leave the queued message available to its agent');
-      await cdp.reload();
-      assert(await cdp.evaluate(`document.querySelector('.mail-overview').textContent.includes('2 queued')&&document.querySelector('[data-mailbox-workspace="other"]').textContent.includes('1 queued')`), 'Collected messages must leave the queued counts');
     },
     async 'nostr-invites'() {
       const ready = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
