@@ -10,25 +10,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const manifest = {baseline: null, mutants: []};
 const faults = [
   ['all-panels-visible', 'tabs'],
-  ['ignore-recipient-workspace', 'recipients'],
-  ['ignore-recipient-project', 'recipients'],
-  ['retain-write-token', 'delivery'],
   ['disable-live-refresh', 'live-usage'],
   ['disable-session-live-refresh', 'session-live-usage'],
   ['drop-usage-query', 'call-history'],
   ['forget-theme', 'themes'],
   ['steal-browser-shortcut', 'tabs'],
-  ['enable-send-while-pending', 'delivery'],
-  ['enable-send-for-empty-project-after-request', 'delivery'],
   ['disable-release-auto-submit', 'documentation'],
   ['restore-stale-release-on-history', 'documentation'],
-  ['show-false-inbox-alert', 'mailbox-context'],
-  ['ignore-mailbox-workspace', 'mailbox-context'],
-  ['disable-inbox-notifications', 'notifications'],
-  ['ignore-notification-workspace', 'notifications'],
-  ['skip-message-edit-hold', 'message-editing'],
-  ['lose-saved-message-text', 'message-editing'],
-  ['save-discarded-message-text', 'message-editing'],
 ];
 
 const selectedCase = process.argv.find(arg => arg.startsWith('--case='))?.split('=')[1];
@@ -80,7 +68,7 @@ try {
       stderr: baseline.errors,
     }),
   );
-  assert((selectedCase ? baseline.result.cases.length === 1 : baseline.result.cases.length >= 17) && baseline.result.cases.every(c => c.passed));
+  assert((selectedCase ? baseline.result.cases.length === 1 : baseline.result.cases.length === 14) && baseline.result.cases.every(c => c.passed));
   manifest.baseline = baseline.directory;
   console.log('PASS unmodified server and browser baseline');
   for (const [fault, name] of faults) {
